@@ -219,8 +219,13 @@ public class SVGParser {
             // Calculate bounding box
             Rectangle bounds = path.getBounds();
             
+            // Translate the path so its bounding box starts at (0, 0)
+            // This is necessary because PathElement.draw() translates to (x, y) before drawing
+            Path2D.Double translatedPath = new Path2D.Double();
+            translatedPath.append(path.getPathIterator(java.awt.geom.AffineTransform.getTranslateInstance(-bounds.x, -bounds.y)), false);
+            
             PathElement pathElem = new PathElement(
-                path,
+                translatedPath,
                 bounds.x + offsetX,
                 bounds.y + offsetY,
                 bounds.width,
