@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 public class SVGParser {
     
     // Pre-compiled patterns for detecting unsupported SVG path commands
-    private static final Pattern ARC_PATTERN = Pattern.compile("([,\\s\\d]|^)[Aa]([,\\s\\d].*|$)");
+    // Note: Arc commands are now supported
     private static final Pattern SMOOTH_CURVE_PATTERN = Pattern.compile("([,\\s\\d]|^)[Ss]([,\\s\\d].*|$)");
     private static final Pattern SMOOTH_QUAD_PATTERN = Pattern.compile("([,\\s\\d]|^)[Tt]([,\\s\\d].*|$)");
     
@@ -187,10 +187,9 @@ public class SVGParser {
             if (d == null || d.isEmpty()) return;
             
             // Check for unsupported commands using pre-compiled patterns
+            // Note: Arc (A) commands are now supported
             String unsupportedCmd = "";
-            if (ARC_PATTERN.matcher(d).find()) {
-                unsupportedCmd = "Arc (A)";
-            } else if (SMOOTH_CURVE_PATTERN.matcher(d).find()) {
+            if (SMOOTH_CURVE_PATTERN.matcher(d).find()) {
                 unsupportedCmd = "Smooth curve (S)";
             } else if (SMOOTH_QUAD_PATTERN.matcher(d).find()) {
                 unsupportedCmd = "Smooth quadratic (T)";
@@ -241,10 +240,9 @@ public class SVGParser {
     private static Path2D.Double parseSVGPath(String d) {
         Path2D.Double path = new Path2D.Double();
         
-        // Simple path parser - handles M, L, H, V, C, Q, Z commands
-        // Note: This parser supports basic SVG path commands but does not handle
-        // advanced commands like A (arc), S (smooth curve continuation), or T (smooth quadratic)
-        Pattern pattern = Pattern.compile("([MLHVCQZmlhvcqz])([^MLHVCQZmlhvcqz]*)");
+        // Path parser - handles M, L, H, V, C, Q, A, Z commands
+        // Note: This parser now supports arc (A) commands
+        Pattern pattern = Pattern.compile("([MLHVCQAZmlhvcqaz])([^MLHVCQAZmlhvcqaz]*)");
         Matcher matcher = pattern.matcher(d);
         
         double currentX = 0, currentY = 0;
@@ -303,6 +301,31 @@ public class SVGParser {
                     currentY += Double.parseDouble(values[0]);
                     path.lineTo(currentX, currentY);
                     break;
+                case "A": // Arc (absolute)
+                case "a": // Arc (relative)
+                    // Arc parameters: rx ry x-axis-rotation large-arc-flag sweep-flag x y
+                    for (int i = 0; i + 6 < values.length; i += 7) {
+                        double rx = Double.parseDouble(values[i]);
+                        double ry = Double.parseDouble(values[i + 1]);
+                        double xAxisRotation = Double.parseDouble(values[i + 2]);
+                        boolean largeArcFlag = Double.parseDouble(values[i + 3]) != 0;
+                        boolean sweepFlag = Double.parseDouble(values[i + 4]) != 0;
+                        double x = Double.parseDouble(values[i + 5]);
+                        double y = Double.parseDouble(values[i + 6]);
+                        
+                        if (command.equals("a")) {
+                            // Relative arc
+                            x += currentX;
+                            y += currentY;
+                        }
+                        
+                        // Convert arc to cubic Bezier curves
+                        arcToBezier(path, currentX, currentY, x, y, rx, ry, xAxisRotation, largeArcFlag, sweepFlag);
+                        
+                        currentX = x;
+                        currentY = y;
+                    }
+                    break;
                 case "Z": // Close path
                 case "z":
                     path.closePath();
@@ -313,6 +336,109 @@ public class SVGParser {
         }
         
         return path;
+    }
+    
+    /**
+     * Convert an SVG arc to cubic Bezier curves.
+     * Based on the SVG specification: https://www.w3.org/TR/SVG/implnotes.html#ArcImplementationNotes
+     */
+    private static void arcToBezier(Path2D.Double path, double x1, double y1, double x2, double y2,
+                                    double rx, double ry, double angle, boolean largeArcFlag, boolean sweepFlag) {
+        // Handle degenerate cases
+        if (x1 == x2 && y1 == y2) {
+            return; // Start and end points are the same
+        }
+        
+        if (rx == 0 || ry == 0) {
+            path.lineTo(x2, y2); // Radii are zero, draw a line
+            return;
+        }
+        
+        // Ensure radii are positive
+        rx = Math.abs(rx);
+        ry = Math.abs(ry);
+        
+        // Convert angle from degrees to radians
+        double angleRad = Math.toRadians(angle);
+        double cosAngle = Math.cos(angleRad);
+        double sinAngle = Math.sin(angleRad);
+        
+        // Step 1: Compute (x1', y1')
+        double dx = (x1 - x2) / 2.0;
+        double dy = (y1 - y2) / 2.0;
+        double x1Prime = cosAngle * dx + sinAngle * dy;
+        double y1Prime = -sinAngle * dx + cosAngle * dy;
+        
+        // Step 2: Correct radii if needed
+        double lambda = (x1Prime * x1Prime) / (rx * rx) + (y1Prime * y1Prime) / (ry * ry);
+        if (lambda > 1) {
+            rx *= Math.sqrt(lambda);
+            ry *= Math.sqrt(lambda);
+        }
+        
+        // Step 3: Compute center point (cx', cy')
+        double sign = (largeArcFlag != sweepFlag) ? 1 : -1;
+        double sq = Math.max(0, (rx * rx * ry * ry - rx * rx * y1Prime * y1Prime - ry * ry * x1Prime * x1Prime) 
+                             / (rx * rx * y1Prime * y1Prime + ry * ry * x1Prime * x1Prime));
+        double coef = sign * Math.sqrt(sq);
+        double cxPrime = coef * rx * y1Prime / ry;
+        double cyPrime = -coef * ry * x1Prime / rx;
+        
+        // Step 4: Compute center point (cx, cy)
+        double cx = cosAngle * cxPrime - sinAngle * cyPrime + (x1 + x2) / 2.0;
+        double cy = sinAngle * cxPrime + cosAngle * cyPrime + (y1 + y2) / 2.0;
+        
+        // Step 5: Compute angles
+        double theta1 = Math.atan2((y1Prime - cyPrime) / ry, (x1Prime - cxPrime) / rx);
+        double dTheta = Math.atan2((-y1Prime - cyPrime) / ry, (-x1Prime - cxPrime) / rx) - theta1;
+        
+        // Adjust dTheta based on sweep flag
+        if (sweepFlag && dTheta < 0) {
+            dTheta += 2 * Math.PI;
+        } else if (!sweepFlag && dTheta > 0) {
+            dTheta -= 2 * Math.PI;
+        }
+        
+        // Convert arc to cubic Bezier curves
+        int segments = Math.max(1, (int) Math.ceil(Math.abs(dTheta) / (Math.PI / 2.0)));
+        double delta = dTheta / segments;
+        double t = (8.0 / 3.0) * Math.sin(delta / 4.0) * Math.sin(delta / 4.0) / Math.sin(delta / 2.0);
+        
+        for (int i = 0; i < segments; i++) {
+            double theta = theta1 + i * delta;
+            double thetaNext = theta + delta;
+            
+            double cos1 = Math.cos(theta);
+            double sin1 = Math.sin(theta);
+            double cos2 = Math.cos(thetaNext);
+            double sin2 = Math.sin(thetaNext);
+            
+            // First control point
+            double cp1x = cos1 - sin1 * t;
+            double cp1y = sin1 + cos1 * t;
+            
+            // Second control point
+            double cp2x = cos2 + sin2 * t;
+            double cp2y = sin2 - cos2 * t;
+            
+            // Transform back to original coordinate system
+            double cp1xTransformed = rx * cp1x;
+            double cp1yTransformed = ry * cp1y;
+            double cp2xTransformed = rx * cp2x;
+            double cp2yTransformed = ry * cp2y;
+            double endXTransformed = rx * cos2;
+            double endYTransformed = ry * sin2;
+            
+            // Apply rotation and translation
+            double cp1xFinal = cosAngle * cp1xTransformed - sinAngle * cp1yTransformed + cx;
+            double cp1yFinal = sinAngle * cp1xTransformed + cosAngle * cp1yTransformed + cy;
+            double cp2xFinal = cosAngle * cp2xTransformed - sinAngle * cp2yTransformed + cx;
+            double cp2yFinal = sinAngle * cp2xTransformed + cosAngle * cp2yTransformed + cy;
+            double endXFinal = cosAngle * endXTransformed - sinAngle * endYTransformed + cx;
+            double endYFinal = sinAngle * endXTransformed + cosAngle * endYTransformed + cy;
+            
+            path.curveTo(cp1xFinal, cp1yFinal, cp2xFinal, cp2yFinal, endXFinal, endYFinal);
+        }
     }
     
     private static double parseLength(String value) {
