@@ -407,7 +407,13 @@ public class SVGParser {
         // Convert arc to cubic Bezier curves
         int segments = Math.max(1, (int) Math.ceil(Math.abs(dTheta) / (Math.PI / 2.0)));
         double delta = dTheta / segments;
-        double t = (8.0 / 3.0) * Math.sin(delta / 4.0) * Math.sin(delta / 4.0) / Math.sin(delta / 2.0);
+        
+        // Calculate tangent factor, with guard against division by zero
+        double sinHalfDelta = Math.sin(delta / 2.0);
+        if (Math.abs(sinHalfDelta) < 1e-10) {
+            return; // Degenerate arc
+        }
+        double t = (8.0 / 3.0) * Math.sin(delta / 4.0) * Math.sin(delta / 4.0) / sinHalfDelta;
         
         for (int i = 0; i < segments; i++) {
             double theta = theta1 + i * delta;
