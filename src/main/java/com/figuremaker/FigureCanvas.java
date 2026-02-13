@@ -14,6 +14,10 @@ public class FigureCanvas extends JPanel {
     private Point dragStart;
     private Point elementDragStart;
     private boolean isDragging;
+    private boolean isResizing;
+    private int resizeHandle; // -1=none, 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+    private int startWidth;
+    private int startHeight;
     
     public FigureCanvas() {
         elements = new ArrayList<>();
@@ -49,6 +53,37 @@ public class FigureCanvas extends JPanel {
         
         addMouseListener(mouseAdapter);
         addMouseMotionListener(mouseAdapter);
+        
+        // Add mouse motion listener for cursor changes
+        addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                updateCursor(e.getX(), e.getY());
+            }
+        });
+    }
+    
+    private void updateCursor(int x, int y) {
+        if (selectedElement instanceof ImageElement) {
+            ImageElement imageElement = (ImageElement) selectedElement;
+            int handle = imageElement.getResizeHandleAt(x, y);
+            
+            switch (handle) {
+                case 0: // Top-left
+                case 3: // Bottom-right
+                    setCursor(Cursor.getPredefinedCursor(Cursor.NW_RESIZE_CURSOR));
+                    break;
+                case 1: // Top-right
+                case 2: // Bottom-left
+                    setCursor(Cursor.getPredefinedCursor(Cursor.NE_RESIZE_CURSOR));
+                    break;
+                default:
+                    setCursor(Cursor.getDefaultCursor());
+                    break;
+            }
+        } else {
+            setCursor(Cursor.getDefaultCursor());
+        }
     }
     
     private void handleMousePressed(MouseEvent e) {
@@ -59,6 +94,22 @@ public class FigureCanvas extends JPanel {
                 if (textElement.isEditing()) {
                     textElement.stopEditing(this);
                 }
+            }
+        }
+        
+        // Check if clicking on a resize handle of the selected element
+        if (selectedElement instanceof ImageElement) {
+            ImageElement imageElement = (ImageElement) selectedElement;
+            resizeHandle = imageElement.getResizeHandleAt(e.getX(), e.getY());
+            
+            if (resizeHandle >= 0) {
+                isResizing = true;
+                isDragging = false;
+                dragStart = e.getPoint();
+                elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
+                startWidth = selectedElement.getWidth();
+                startHeight = selectedElement.getHeight();
+                return;
             }
         }
         
@@ -75,6 +126,7 @@ public class FigureCanvas extends JPanel {
             dragStart = e.getPoint();
             elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
             isDragging = false;
+            isResizing = false;
         } else {
             if (selectedElement != null) {
                 selectedElement.setSelected(false);
@@ -92,17 +144,97 @@ public class FigureCanvas extends JPanel {
     
     private void handleMouseDragged(MouseEvent e) {
         if (selectedElement != null && dragStart != null) {
-            isDragging = true;
-            int dx = e.getX() - dragStart.x;
-            int dy = e.getY() - dragStart.y;
-            
-            selectedElement.setPosition(elementDragStart.x + dx, elementDragStart.y + dy);
-            repaint();
+            if (isResizing) {
+                int dx = e.getX() - dragStart.x;
+                int dy = e.getY() - dragStart.y;
+                
+                int newX = elementDragStart.x;
+                int newY = elementDragStart.y;
+                int newWidth = startWidth;
+                int newHeight = startHeight;
+                
+                // Calculate aspect ratio if Shift is held
+                boolean preserveAspect = e.isShiftDown();
+                double aspectRatio = (double) startWidth / startHeight;
+                
+                switch (resizeHandle) {
+                    case 0: // Top-left
+                        newWidth = startWidth - dx;
+                        newHeight = startHeight - dy;
+                        if (preserveAspect) {
+                            // Use the larger dimension change to preserve aspect ratio
+                            if (Math.abs(dx) > Math.abs(dy)) {
+                                newHeight = (int) (newWidth / aspectRatio);
+                                dy = startHeight - newHeight;
+                            } else {
+                                newWidth = (int) (newHeight * aspectRatio);
+                                dx = startWidth - newWidth;
+                            }
+                        }
+                        newX = elementDragStart.x + dx;
+                        newY = elementDragStart.y + dy;
+                        break;
+                    case 1: // Top-right
+                        newWidth = startWidth + dx;
+                        newHeight = startHeight - dy;
+                        if (preserveAspect) {
+                            if (Math.abs(dx) > Math.abs(dy)) {
+                                newHeight = (int) (newWidth / aspectRatio);
+                                dy = startHeight - newHeight;
+                            } else {
+                                newWidth = (int) (newHeight * aspectRatio);
+                            }
+                        }
+                        newY = elementDragStart.y + dy;
+                        break;
+                    case 2: // Bottom-left
+                        newWidth = startWidth - dx;
+                        newHeight = startHeight + dy;
+                        if (preserveAspect) {
+                            if (Math.abs(dx) > Math.abs(dy)) {
+                                newHeight = (int) (newWidth / aspectRatio);
+                            } else {
+                                newWidth = (int) (newHeight * aspectRatio);
+                                dx = startWidth - newWidth;
+                            }
+                        }
+                        newX = elementDragStart.x + dx;
+                        break;
+                    case 3: // Bottom-right
+                        newWidth = startWidth + dx;
+                        newHeight = startHeight + dy;
+                        if (preserveAspect) {
+                            if (Math.abs(dx) > Math.abs(dy)) {
+                                newHeight = (int) (newWidth / aspectRatio);
+                            } else {
+                                newWidth = (int) (newHeight * aspectRatio);
+                            }
+                        }
+                        break;
+                }
+                
+                // Enforce minimum size
+                if (newWidth > 20 && newHeight > 20) {
+                    selectedElement.setPosition(newX, newY);
+                    selectedElement.setSize(newWidth, newHeight);
+                }
+                
+                repaint();
+            } else {
+                isDragging = true;
+                int dx = e.getX() - dragStart.x;
+                int dy = e.getY() - dragStart.y;
+                
+                selectedElement.setPosition(elementDragStart.x + dx, elementDragStart.y + dy);
+                repaint();
+            }
         }
     }
     
     private void handleMouseReleased(MouseEvent e) {
         isDragging = false;
+        isResizing = false;
+        resizeHandle = -1;
         dragStart = null;
         elementDragStart = null;
     }

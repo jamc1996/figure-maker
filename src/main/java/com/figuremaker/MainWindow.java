@@ -32,6 +32,8 @@ public class MainWindow extends JFrame {
         
         JMenuItem saveCanvasItem = new JMenuItem("Save Canvas");
         saveCanvasItem.addActionListener(e -> saveCanvas());
+        saveCanvasItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, 
+            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         
         JMenuItem exitItem = new JMenuItem("Exit");
         exitItem.addActionListener(e -> System.exit(0));

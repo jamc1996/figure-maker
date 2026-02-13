@@ -40,5 +40,10 @@ public abstract class CanvasElement {
     public boolean isSelected() { return selected; }
     public void setSelected(boolean selected) { this.selected = selected; }
     
+    public void setSize(int width, int height) {
+        this.width = width;
+        this.height = height;
+    }
+    
     public abstract String getType();
 }
