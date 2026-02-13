@@ -22,7 +22,7 @@ A Java desktop application for creating figures for academic publication.
 mvn clean package
 ```
 
-This will create a JAR file in the `target/` directory.
+This will create a self-contained JAR file (fat JAR) in the `target/` directory that includes all dependencies.
 
 ## Running the Application
 
@@ -67,3 +67,4 @@ Or simply double-click the JAR file if your system is configured to run Java app
 - Built with Java Swing for the GUI
 - Uses Gson for JSON serialization of canvas data
 - Images are embedded in saved files using Base64 encoding
+- Packaged as a fat JAR using maven-shade-plugin for easy distribution
