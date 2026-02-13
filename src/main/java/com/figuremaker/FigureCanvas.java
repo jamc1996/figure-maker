@@ -304,6 +304,12 @@ public class FigureCanvas extends JPanel {
         repaint();
     }
     
+    public void importSVG(File svgFile) throws Exception {
+        List<CanvasElement> svgElements = SVGParser.parseSVG(svgFile);
+        elements.addAll(svgElements);
+        repaint();
+    }
+    
     public void clear() {
         elements.clear();
         if (selectedElement != null) {
@@ -342,6 +348,22 @@ public class FigureCanvas extends JPanel {
                 jsonElement.addProperty("fontName", textElement.getFont().getName());
                 jsonElement.addProperty("fontSize", textElement.getFont().getSize());
                 jsonElement.addProperty("fontStyle", textElement.getFont().getStyle());
+            } else if (element instanceof RectElement) {
+                RectElement rectElement = (RectElement) element;
+                jsonElement.addProperty("fillColor", colorToString(rectElement.getFillColor()));
+                jsonElement.addProperty("strokeColor", colorToString(rectElement.getStrokeColor()));
+                jsonElement.addProperty("strokeWidth", rectElement.getStrokeWidth());
+            } else if (element instanceof CircleElement) {
+                CircleElement circleElement = (CircleElement) element;
+                jsonElement.addProperty("fillColor", colorToString(circleElement.getFillColor()));
+                jsonElement.addProperty("strokeColor", colorToString(circleElement.getStrokeColor()));
+                jsonElement.addProperty("strokeWidth", circleElement.getStrokeWidth());
+            } else if (element instanceof PathElement) {
+                PathElement pathElement = (PathElement) element;
+                jsonElement.addProperty("fillColor", colorToString(pathElement.getFillColor()));
+                jsonElement.addProperty("strokeColor", colorToString(pathElement.getStrokeColor()));
+                jsonElement.addProperty("strokeWidth", pathElement.getStrokeWidth());
+                jsonElement.addProperty("pathData", pathToString(pathElement.getPath()));
             }
             
             jsonElements.add(jsonElement);
@@ -392,10 +414,119 @@ public class FigureCanvas extends JPanel {
                     
                     TextElement textElement = new TextElement(x, y, width, height, text, font);
                     elements.add(textElement);
+                } else if (type.equals("rect")) {
+                    Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+                    Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+                    float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+                    
+                    RectElement rectElement = new RectElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+                    elements.add(rectElement);
+                } else if (type.equals("circle")) {
+                    Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+                    Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+                    float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+                    
+                    CircleElement circleElement = new CircleElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+                    elements.add(circleElement);
+                } else if (type.equals("path")) {
+                    Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+                    Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+                    float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+                    String pathData = jsonElement.get("pathData").getAsString();
+                    
+                    java.awt.geom.Path2D.Double path = stringToPath(pathData);
+                    PathElement pathElement = new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
+                    elements.add(pathElement);
                 }
             }
             
             repaint();
         }
+    }
+    
+    private String colorToString(Color color) {
+        if (color == null) return "none";
+        return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+    }
+    
+    private Color stringToColor(String colorStr) {
+        if (colorStr == null || colorStr.equals("none")) return null;
+        try {
+            return Color.decode(colorStr);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+    
+    private String pathToString(java.awt.geom.Path2D.Double path) {
+        StringBuilder sb = new StringBuilder();
+        java.awt.geom.PathIterator pi = path.getPathIterator(null);
+        double[] coords = new double[6];
+        
+        while (!pi.isDone()) {
+            int type = pi.currentSegment(coords);
+            switch (type) {
+                case java.awt.geom.PathIterator.SEG_MOVETO:
+                    sb.append("M").append(coords[0]).append(",").append(coords[1]).append(" ");
+                    break;
+                case java.awt.geom.PathIterator.SEG_LINETO:
+                    sb.append("L").append(coords[0]).append(",").append(coords[1]).append(" ");
+                    break;
+                case java.awt.geom.PathIterator.SEG_QUADTO:
+                    sb.append("Q").append(coords[0]).append(",").append(coords[1]).append(" ")
+                      .append(coords[2]).append(",").append(coords[3]).append(" ");
+                    break;
+                case java.awt.geom.PathIterator.SEG_CUBICTO:
+                    sb.append("C").append(coords[0]).append(",").append(coords[1]).append(" ")
+                      .append(coords[2]).append(",").append(coords[3]).append(" ")
+                      .append(coords[4]).append(",").append(coords[5]).append(" ");
+                    break;
+                case java.awt.geom.PathIterator.SEG_CLOSE:
+                    sb.append("Z ");
+                    break;
+            }
+            pi.next();
+        }
+        
+        return sb.toString().trim();
+    }
+    
+    private java.awt.geom.Path2D.Double stringToPath(String pathData) {
+        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+        
+        String[] commands = pathData.split(" ");
+        for (String command : commands) {
+            if (command.isEmpty()) continue;
+            
+            char cmd = command.charAt(0);
+            String[] coords = command.substring(1).split(",");
+            
+            try {
+                switch (cmd) {
+                    case 'M':
+                        path.moveTo(Double.parseDouble(coords[0]), Double.parseDouble(coords[1]));
+                        break;
+                    case 'L':
+                        path.lineTo(Double.parseDouble(coords[0]), Double.parseDouble(coords[1]));
+                        break;
+                    case 'Q':
+                        path.quadTo(Double.parseDouble(coords[0]), Double.parseDouble(coords[1]),
+                                   Double.parseDouble(coords[2]), Double.parseDouble(coords[3]));
+                        break;
+                    case 'C':
+                        path.curveTo(Double.parseDouble(coords[0]), Double.parseDouble(coords[1]),
+                                    Double.parseDouble(coords[2]), Double.parseDouble(coords[3]),
+                                    Double.parseDouble(coords[4]), Double.parseDouble(coords[5]));
+                        break;
+                    case 'Z':
+                        path.closePath();
+                        break;
+                }
+            } catch (Exception e) {
+                System.err.println("Error parsing path command: " + command);
+            }
+        }
+        
+        return path;
     }
 }
