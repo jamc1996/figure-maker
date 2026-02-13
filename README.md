@@ -7,7 +7,8 @@ A Java desktop application for creating figures for academic publication.
 - **Canvas Management**: Create new canvas or open previously saved canvases
 - **Image Support**: Load PNG and JPEG images from your filesystem
 - **SVG Import**: Import SVG files with each element becoming individually editable
-  - Supports rectangles, circles, ellipses, and paths
+  - Supports rectangles, circles, ellipses, and paths (including arc commands)
+  - Path commands supported: M, L, H, V, C, Q, A, Z (move, line, horizontal, vertical, cubic curve, quadratic curve, arc, close)
   - Preserves fill colors, stroke colors, and stroke widths
   - Handles grouped elements and basic transforms
 - **Image Positioning**: 
