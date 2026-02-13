@@ -101,7 +101,8 @@ public class SVGParser {
             );
             elements.add(rect);
         } catch (Exception e) {
-            System.err.println("Error parsing rect: " + e.getMessage());
+            System.err.println("Error parsing rect element (x=" + rectElement.getAttribute("x") + 
+                ", y=" + rectElement.getAttribute("y") + "): " + e.getMessage());
         }
     }
     
@@ -134,7 +135,8 @@ public class SVGParser {
             );
             elements.add(circle);
         } catch (Exception e) {
-            System.err.println("Error parsing circle: " + e.getMessage());
+            System.err.println("Error parsing circle element (cx=" + circleElement.getAttribute("cx") + 
+                ", cy=" + circleElement.getAttribute("cy") + "): " + e.getMessage());
         }
     }
     
@@ -157,7 +159,8 @@ public class SVGParser {
                 if (colors[1] != null) strokeColor = colors[1];
             }
             
-            CircleElement ellipse = new CircleElement(
+            // Note: Using CircleElement to represent ellipse since both are ovals
+            CircleElement ellipseCircle = new CircleElement(
                 (int) (cx - rx) + offsetX,
                 (int) (cy - ry) + offsetY,
                 (int) (rx * 2),
@@ -166,9 +169,10 @@ public class SVGParser {
                 strokeColor,
                 strokeWidth
             );
-            elements.add(ellipse);
+            elements.add(ellipseCircle);
         } catch (Exception e) {
-            System.err.println("Error parsing ellipse: " + e.getMessage());
+            System.err.println("Error parsing ellipse element (cx=" + ellipseElement.getAttribute("cx") + 
+                ", cy=" + ellipseElement.getAttribute("cy") + "): " + e.getMessage());
         }
     }
     
@@ -206,7 +210,9 @@ public class SVGParser {
             );
             elements.add(pathElem);
         } catch (Exception e) {
-            System.err.println("Error parsing path: " + e.getMessage());
+            System.err.println("Error parsing path element (d=" + 
+                pathElement.getAttribute("d").substring(0, Math.min(50, pathElement.getAttribute("d").length())) + 
+                "...): " + e.getMessage());
         }
     }
     
@@ -214,6 +220,8 @@ public class SVGParser {
         Path2D.Double path = new Path2D.Double();
         
         // Simple path parser - handles M, L, H, V, C, Q, Z commands
+        // Note: This parser supports basic SVG path commands but does not handle
+        // advanced commands like A (arc), S (smooth curve continuation), or T (smooth quadratic)
         Pattern pattern = Pattern.compile("([MLHVCQZmlhvcqz])([^MLHVCQZmlhvcqz]*)");
         Matcher matcher = pattern.matcher(d);
         
@@ -385,6 +393,8 @@ public class SVGParser {
         if (transform == null || transform.isEmpty()) return translation;
         
         // Simple parser for translate() transform
+        // Note: Only handles translate() transforms. Other transforms like
+        // rotate(), scale(), skew(), and matrix() are not currently supported.
         Pattern pattern = Pattern.compile("translate\\(([^,\\)]+)[,\\s]*([^\\)]+)\\)");
         Matcher matcher = pattern.matcher(transform);
         

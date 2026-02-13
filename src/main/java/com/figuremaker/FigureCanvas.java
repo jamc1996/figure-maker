@@ -498,8 +498,14 @@ public class FigureCanvas extends JPanel {
         for (String command : commands) {
             if (command.isEmpty()) continue;
             
+            // Validate command has at least one character
+            if (command.length() == 0) continue;
+            
             char cmd = command.charAt(0);
-            String[] coords = command.substring(1).split(",");
+            String coordsStr = command.substring(1);
+            if (coordsStr.isEmpty() && cmd != 'Z') continue;
+            
+            String[] coords = coordsStr.split(",");
             
             try {
                 switch (cmd) {
@@ -523,7 +529,8 @@ public class FigureCanvas extends JPanel {
                         break;
                 }
             } catch (Exception e) {
-                System.err.println("Error parsing path command: " + command);
+                System.err.println("Error parsing path command '" + command + "' in path data: " + 
+                    pathData.substring(0, Math.min(100, pathData.length())));
             }
         }
         
