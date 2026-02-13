@@ -66,8 +66,11 @@ public class SVGParser {
                 parseText(element, elements, currentOffsetX, currentOffsetY);
                 break;
             case "g":
+                // Parse group element
+                parseGroup(element, elements, currentOffsetX, currentOffsetY);
+                break;
             case "svg":
-                // Recursively parse group elements
+                // Recursively parse SVG root children without creating a group
                 NodeList children = element.getChildNodes();
                 for (int i = 0; i < children.getLength(); i++) {
                     Node child = children.item(i);
@@ -76,6 +79,54 @@ public class SVGParser {
                     }
                 }
                 break;
+        }
+    }
+    
+    private static void parseGroup(Element groupElement, List<CanvasElement> elements, int offsetX, int offsetY) {
+        try {
+            // Get group ID if present
+            String id = groupElement.getAttribute("id");
+            
+            // Check if this is a clipping mask
+            String clipPath = groupElement.getAttribute("clip-path");
+            boolean isClippingMask = clipPath != null && !clipPath.isEmpty();
+            
+            // Parse all children into a temporary list
+            List<CanvasElement> groupChildren = new ArrayList<>();
+            NodeList children = groupElement.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                Node child = children.item(i);
+                if (child instanceof Element) {
+                    parseElement((Element) child, groupChildren, offsetX, offsetY);
+                }
+            }
+            
+            // If group has children, create a GroupElement
+            if (!groupChildren.isEmpty()) {
+                // Calculate bounding box
+                int minX = Integer.MAX_VALUE;
+                int minY = Integer.MAX_VALUE;
+                int maxX = Integer.MIN_VALUE;
+                int maxY = Integer.MIN_VALUE;
+                
+                for (CanvasElement child : groupChildren) {
+                    minX = Math.min(minX, child.getX());
+                    minY = Math.min(minY, child.getY());
+                    maxX = Math.max(maxX, child.getX() + child.getWidth());
+                    maxY = Math.max(maxY, child.getY() + child.getHeight());
+                }
+                
+                GroupElement group = new GroupElement(minX, minY, maxX - minX, maxY - minY, id);
+                group.setClippingMask(isClippingMask);
+                
+                for (CanvasElement child : groupChildren) {
+                    group.addChild(child);
+                }
+                
+                elements.add(group);
+            }
+        } catch (Exception e) {
+            System.err.println("Error parsing group element: " + e.getMessage());
         }
     }
     

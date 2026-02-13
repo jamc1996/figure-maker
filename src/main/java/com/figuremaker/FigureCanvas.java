@@ -134,11 +134,62 @@ public class FigureCanvas extends JPanel {
             }
         }
         
-        // Show position dialog on right-click
+        // Show popup menu on right-click
         if (e.getButton() == MouseEvent.BUTTON3 && selectedElement != null) {
-            showPositionDialog();
+            showContextMenu(e.getX(), e.getY());
         }
         
+        repaint();
+    }
+    
+    private void showContextMenu(int x, int y) {
+        if (selectedElement == null) return;
+        
+        JPopupMenu popup = new JPopupMenu();
+        
+        // Always show set position option
+        JMenuItem setPositionItem = new JMenuItem("Set Position...");
+        setPositionItem.addActionListener(e -> showPositionDialog());
+        popup.add(setPositionItem);
+        
+        // If it's a clipping mask, add release option
+        if (selectedElement instanceof GroupElement) {
+            GroupElement group = (GroupElement) selectedElement;
+            if (group.isClippingMask()) {
+                popup.addSeparator();
+                JMenuItem releaseClipItem = new JMenuItem("Release Clipping Mask");
+                releaseClipItem.addActionListener(e -> {
+                    group.releaseClippingMask();
+                    repaint();
+                });
+                popup.add(releaseClipItem);
+            }
+            
+            // Add ungroup option
+            popup.addSeparator();
+            JMenuItem ungroupItem = new JMenuItem("Ungroup");
+            ungroupItem.addActionListener(e -> ungroupSelected());
+            popup.add(ungroupItem);
+        }
+        
+        popup.show(this, x, y);
+    }
+    
+    private void ungroupSelected() {
+        if (!(selectedElement instanceof GroupElement)) return;
+        
+        GroupElement group = (GroupElement) selectedElement;
+        List<CanvasElement> children = group.getChildren();
+        
+        // Remove the group
+        elements.remove(group);
+        
+        // Add all children to the canvas
+        for (CanvasElement child : children) {
+            elements.add(child);
+        }
+        
+        selectedElement = null;
         repaint();
     }
     
@@ -364,6 +415,53 @@ public class FigureCanvas extends JPanel {
                 jsonElement.addProperty("strokeColor", colorToString(pathElement.getStrokeColor()));
                 jsonElement.addProperty("strokeWidth", pathElement.getStrokeWidth());
                 jsonElement.addProperty("pathData", pathToString(pathElement.getPath()));
+            } else if (element instanceof GroupElement) {
+                GroupElement groupElement = (GroupElement) element;
+                jsonElement.addProperty("groupId", groupElement.getGroupId());
+                jsonElement.addProperty("isClippingMask", groupElement.isClippingMask());
+                
+                // Serialize children
+                JsonArray childrenArray = new JsonArray();
+                for (CanvasElement child : groupElement.getChildren()) {
+                    JsonObject childJson = new JsonObject();
+                    childJson.addProperty("type", child.getType());
+                    childJson.addProperty("x", child.getX());
+                    childJson.addProperty("y", child.getY());
+                    childJson.addProperty("width", child.getWidth());
+                    childJson.addProperty("height", child.getHeight());
+                    
+                    // Add type-specific properties
+                    if (child instanceof RectElement) {
+                        RectElement rect = (RectElement) child;
+                        childJson.addProperty("fillColor", colorToString(rect.getFillColor()));
+                        childJson.addProperty("strokeColor", colorToString(rect.getStrokeColor()));
+                        childJson.addProperty("strokeWidth", rect.getStrokeWidth());
+                    } else if (child instanceof CircleElement) {
+                        CircleElement circle = (CircleElement) child;
+                        childJson.addProperty("fillColor", colorToString(circle.getFillColor()));
+                        childJson.addProperty("strokeColor", colorToString(circle.getStrokeColor()));
+                        childJson.addProperty("strokeWidth", circle.getStrokeWidth());
+                    } else if (child instanceof PathElement) {
+                        PathElement path = (PathElement) child;
+                        childJson.addProperty("fillColor", colorToString(path.getFillColor()));
+                        childJson.addProperty("strokeColor", colorToString(path.getStrokeColor()));
+                        childJson.addProperty("strokeWidth", path.getStrokeWidth());
+                        childJson.addProperty("pathData", pathToString(path.getPath()));
+                    } else if (child instanceof TextElement) {
+                        TextElement text = (TextElement) child;
+                        childJson.addProperty("text", text.getText());
+                        childJson.addProperty("fontName", text.getFont().getName());
+                        childJson.addProperty("fontSize", text.getFont().getSize());
+                        childJson.addProperty("fontStyle", text.getFont().getStyle());
+                        if (child instanceof TextElementWithColor) {
+                            TextElementWithColor textColor = (TextElementWithColor) child;
+                            childJson.addProperty("textColor", colorToString(textColor.getTextColor()));
+                        }
+                    }
+                    
+                    childrenArray.add(childJson);
+                }
+                jsonElement.add("children", childrenArray);
             }
             
             jsonElements.add(jsonElement);
@@ -437,11 +535,73 @@ public class FigureCanvas extends JPanel {
                     java.awt.geom.Path2D.Double path = stringToPath(pathData);
                     PathElement pathElement = new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
                     elements.add(pathElement);
+                } else if (type.equals("group") || type.equals("clipping-mask")) {
+                    String groupId = jsonElement.has("groupId") ? jsonElement.get("groupId").getAsString() : null;
+                    boolean isClippingMask = jsonElement.has("isClippingMask") && jsonElement.get("isClippingMask").getAsBoolean();
+                    
+                    GroupElement group = new GroupElement(x, y, width, height, groupId);
+                    group.setClippingMask(isClippingMask);
+                    
+                    // Load children
+                    if (jsonElement.has("children")) {
+                        JsonArray childrenArray = jsonElement.getAsJsonArray("children");
+                        for (int j = 0; j < childrenArray.size(); j++) {
+                            JsonObject childJson = childrenArray.get(j).getAsJsonObject();
+                            CanvasElement child = loadElementFromJson(childJson);
+                            if (child != null) {
+                                group.addChild(child);
+                            }
+                        }
+                    }
+                    
+                    elements.add(group);
                 }
             }
             
             repaint();
         }
+    }
+    
+    private CanvasElement loadElementFromJson(JsonObject jsonElement) {
+        String type = jsonElement.get("type").getAsString();
+        int x = jsonElement.get("x").getAsInt();
+        int y = jsonElement.get("y").getAsInt();
+        int width = jsonElement.get("width").getAsInt();
+        int height = jsonElement.get("height").getAsInt();
+        
+        if (type.equals("rect")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+            return new RectElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("circle")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+            return new CircleElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("path")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = jsonElement.get("strokeWidth").getAsFloat();
+            String pathData = jsonElement.get("pathData").getAsString();
+            java.awt.geom.Path2D.Double path = stringToPath(pathData);
+            return new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("text")) {
+            String text = jsonElement.get("text").getAsString();
+            String fontName = jsonElement.get("fontName").getAsString();
+            int fontSize = jsonElement.get("fontSize").getAsInt();
+            int fontStyle = jsonElement.get("fontStyle").getAsInt();
+            Font font = new Font(fontName, fontStyle, fontSize);
+            
+            if (jsonElement.has("textColor")) {
+                Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
+                return new TextElementWithColor(x, y, width, height, text, font, textColor);
+            } else {
+                return new TextElement(x, y, width, height, text, font);
+            }
+        }
+        
+        return null;
     }
     
     private String colorToString(Color color) {
