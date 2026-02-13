@@ -245,7 +245,7 @@ public class FigureCanvas extends JPanel {
                     String imageData = jsonElement.get("imageData").getAsString();
                     
                     try {
-                        var image = ImageElement.decodeBase64Image(imageData);
+                        java.awt.image.BufferedImage image = ImageElement.decodeBase64Image(imageData);
                         ImageElement imageElement = new ImageElement(image, x, y, width, height, imagePath);
                         elements.add(imageElement);
                     } catch (Exception ex) {

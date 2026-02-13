@@ -5,14 +5,18 @@ import java.awt.*;
 import java.awt.event.*;
 
 public class TextElement extends CanvasElement {
+    private static final int DEFAULT_WIDTH = 200;
+    private static final int DEFAULT_HEIGHT = 100;
+    private static final String DEFAULT_TEXT = "Enter text here";
+    
     private String text;
     private Font font;
     private JTextArea textArea;
     private boolean editing;
     
     public TextElement(int x, int y) {
-        super(x, y, 200, 100);
-        this.text = "Enter text here";
+        super(x, y, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        this.text = DEFAULT_TEXT;
         this.font = new Font("Arial", Font.PLAIN, 14);
         this.editing = false;
     }
