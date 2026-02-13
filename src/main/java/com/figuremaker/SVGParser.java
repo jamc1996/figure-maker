@@ -304,7 +304,7 @@ public class SVGParser {
                 case "A": // Arc (absolute)
                 case "a": // Arc (relative)
                     // Arc parameters: rx ry x-axis-rotation large-arc-flag sweep-flag x y
-                    for (int i = 0; i + 6 < values.length; i += 7) {
+                    for (int i = 0; i + 7 <= values.length; i += 7) {
                         double rx = Double.parseDouble(values[i]);
                         double ry = Double.parseDouble(values[i + 1]);
                         double xAxisRotation = Double.parseDouble(values[i + 2]);
@@ -397,6 +397,11 @@ public class SVGParser {
             dTheta += 2 * Math.PI;
         } else if (!sweepFlag && dTheta > 0) {
             dTheta -= 2 * Math.PI;
+        }
+        
+        // Handle degenerate case where arc spans 0 radians
+        if (Math.abs(dTheta) < 1e-10) {
+            return;
         }
         
         // Convert arc to cubic Bezier curves
