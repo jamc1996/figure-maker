@@ -181,6 +181,13 @@ public class SVGParser {
             String d = pathElement.getAttribute("d");
             if (d == null || d.isEmpty()) return;
             
+            // Check for unsupported commands (A, S, T)
+            if (d.matches(".*[ASTast].*")) {
+                System.err.println("Warning: Skipping path with unsupported commands (Arc, Smooth curve). " +
+                    "Path data: " + d.substring(0, Math.min(50, d.length())) + "...");
+                return;
+            }
+            
             Color fillColor = parseColor(pathElement.getAttribute("fill"));
             Color strokeColor = parseColor(pathElement.getAttribute("stroke"));
             float strokeWidth = parseStrokeWidth(pathElement.getAttribute("stroke-width"));
