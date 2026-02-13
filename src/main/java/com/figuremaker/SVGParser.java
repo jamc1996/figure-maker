@@ -181,10 +181,21 @@ public class SVGParser {
             String d = pathElement.getAttribute("d");
             if (d == null || d.isEmpty()) return;
             
-            // Check for unsupported commands (A, S, T)
-            if (d.matches(".*[ASTast].*")) {
-                System.err.println("Warning: Skipping path with unsupported commands (Arc, Smooth curve). " +
-                    "Path data: " + d.substring(0, Math.min(50, d.length())) + "...");
+            // Check for unsupported commands (A=arc, S=smooth curve, T=smooth quadratic)
+            // SVG commands can appear anywhere in the path, not necessarily with word boundaries
+            String unsupportedCmd = "";
+            if (d.toUpperCase().contains("A") && d.matches(".*[,\\s\\d][Aa][,\\s\\d].*")) {
+                unsupportedCmd = "Arc (A)";
+            } else if (d.toUpperCase().contains("S") && d.matches(".*[,\\s\\d][Ss][,\\s\\d].*")) {
+                unsupportedCmd = "Smooth curve (S)";
+            } else if (d.toUpperCase().contains("T") && d.matches(".*[,\\s\\d][Tt][,\\s\\d].*")) {
+                unsupportedCmd = "Smooth quadratic (T)";
+            }
+            
+            if (!unsupportedCmd.isEmpty()) {
+                System.err.println("Warning: Skipping path with unsupported command: " + unsupportedCmd + ". " +
+                    "Path data: " + d.substring(0, Math.min(80, d.length())) + 
+                    (d.length() > 80 ? "..." : ""));
                 return;
             }
             
