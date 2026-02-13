@@ -182,13 +182,13 @@ public class SVGParser {
             if (d == null || d.isEmpty()) return;
             
             // Check for unsupported commands (A=arc, S=smooth curve, T=smooth quadratic)
-            // SVG commands can appear anywhere in the path, not necessarily with word boundaries
+            // Commands can appear: at start, after space/comma/digit, or after another letter
             String unsupportedCmd = "";
-            if (d.toUpperCase().contains("A") && d.matches(".*[,\\s\\d][Aa][,\\s\\d].*")) {
+            if (d.matches(".*([,\\s\\d]|^)[Aa]([,\\s\\d].*|$).*")) {
                 unsupportedCmd = "Arc (A)";
-            } else if (d.toUpperCase().contains("S") && d.matches(".*[,\\s\\d][Ss][,\\s\\d].*")) {
+            } else if (d.matches(".*([,\\s\\d]|^)[Ss]([,\\s\\d].*|$).*")) {
                 unsupportedCmd = "Smooth curve (S)";
-            } else if (d.toUpperCase().contains("T") && d.matches(".*[,\\s\\d][Tt][,\\s\\d].*")) {
+            } else if (d.matches(".*([,\\s\\d]|^)[Tt]([,\\s\\d].*|$).*")) {
                 unsupportedCmd = "Smooth quadratic (T)";
             }
             
