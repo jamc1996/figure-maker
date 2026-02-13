@@ -62,6 +62,9 @@ public class SVGParser {
             case "path":
                 parsePath(element, elements, currentOffsetX, currentOffsetY);
                 break;
+            case "text":
+                parseText(element, elements, currentOffsetX, currentOffsetY);
+                break;
             case "g":
             case "svg":
                 // Recursively parse group elements
@@ -239,6 +242,70 @@ public class SVGParser {
             System.err.println("Error parsing path element (d=" + 
                 pathElement.getAttribute("d").substring(0, Math.min(50, pathElement.getAttribute("d").length())) + 
                 "...): " + e.getMessage());
+        }
+    }
+    
+    private static void parseText(Element textElement, List<CanvasElement> elements, int offsetX, int offsetY) {
+        try {
+            // Get text content
+            String textContent = textElement.getTextContent();
+            if (textContent == null || textContent.trim().isEmpty()) return;
+            
+            // Get position
+            double x = parseLength(textElement.getAttribute("x"));
+            double y = parseLength(textElement.getAttribute("y"));
+            
+            // Parse font properties
+            String fontFamily = textElement.getAttribute("font-family");
+            if (fontFamily.isEmpty()) fontFamily = "Arial";
+            
+            String fontSizeStr = textElement.getAttribute("font-size");
+            int fontSize = 14; // default
+            if (!fontSizeStr.isEmpty()) {
+                fontSize = (int) parseLength(fontSizeStr);
+            }
+            
+            String fontWeight = textElement.getAttribute("font-weight");
+            boolean isBold = fontWeight.equals("bold") || fontWeight.equals("700");
+            
+            String fontStyle = textElement.getAttribute("font-style");
+            boolean isItalic = fontStyle.equals("italic");
+            
+            int fontStyleCode = Font.PLAIN;
+            if (isBold && isItalic) fontStyleCode = Font.BOLD | Font.ITALIC;
+            else if (isBold) fontStyleCode = Font.BOLD;
+            else if (isItalic) fontStyleCode = Font.ITALIC;
+            
+            Font font = new Font(fontFamily, fontStyleCode, fontSize);
+            
+            // Parse fill color for text
+            Color fillColor = parseColor(textElement.getAttribute("fill"));
+            if (fillColor == null) fillColor = Color.BLACK; // SVG default for text
+            
+            // Apply style attribute if present
+            String style = textElement.getAttribute("style");
+            if (style != null && !style.isEmpty()) {
+                Color[] colors = parseStyle(style);
+                if (colors[0] != null) fillColor = colors[0];
+            }
+            
+            // Estimate text dimensions (rough approximation)
+            int estimatedWidth = textContent.length() * fontSize / 2;
+            int estimatedHeight = fontSize + 10;
+            
+            // Create text element with custom TextElement that supports color
+            TextElementWithColor textElem = new TextElementWithColor(
+                (int)x + offsetX,
+                (int)y + offsetY - fontSize, // SVG y is baseline, adjust for top
+                estimatedWidth,
+                estimatedHeight,
+                textContent.trim(),
+                font,
+                fillColor
+            );
+            elements.add(textElem);
+        } catch (Exception e) {
+            System.err.println("Error parsing text element: " + e.getMessage());
         }
     }
     
