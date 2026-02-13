@@ -18,6 +18,11 @@ import java.util.regex.Pattern;
 
 public class SVGParser {
     
+    // Pre-compiled patterns for detecting unsupported SVG path commands
+    private static final Pattern ARC_PATTERN = Pattern.compile("([,\\s\\d]|^)[Aa]([,\\s\\d].*|$)");
+    private static final Pattern SMOOTH_CURVE_PATTERN = Pattern.compile("([,\\s\\d]|^)[Ss]([,\\s\\d].*|$)");
+    private static final Pattern SMOOTH_QUAD_PATTERN = Pattern.compile("([,\\s\\d]|^)[Tt]([,\\s\\d].*|$)");
+    
     public static List<CanvasElement> parseSVG(File svgFile) throws Exception {
         List<CanvasElement> elements = new ArrayList<>();
         
@@ -181,14 +186,13 @@ public class SVGParser {
             String d = pathElement.getAttribute("d");
             if (d == null || d.isEmpty()) return;
             
-            // Check for unsupported commands (A=arc, S=smooth curve, T=smooth quadratic)
-            // Commands can appear: at start, after space/comma/digit, or after another letter
+            // Check for unsupported commands using pre-compiled patterns
             String unsupportedCmd = "";
-            if (d.matches(".*([,\\s\\d]|^)[Aa]([,\\s\\d].*|$).*")) {
+            if (ARC_PATTERN.matcher(d).find()) {
                 unsupportedCmd = "Arc (A)";
-            } else if (d.matches(".*([,\\s\\d]|^)[Ss]([,\\s\\d].*|$).*")) {
+            } else if (SMOOTH_CURVE_PATTERN.matcher(d).find()) {
                 unsupportedCmd = "Smooth curve (S)";
-            } else if (d.matches(".*([,\\s\\d]|^)[Tt]([,\\s\\d].*|$).*")) {
+            } else if (SMOOTH_QUAD_PATTERN.matcher(d).find()) {
                 unsupportedCmd = "Smooth quadratic (T)";
             }
             
