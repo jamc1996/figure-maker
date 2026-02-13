@@ -16,6 +16,9 @@ public class ImageElement extends CanvasElement {
     public ImageElement(File imageFile, int x, int y) throws IOException {
         super(x, y, 0, 0);
         this.image = ImageIO.read(imageFile);
+        if (this.image == null) {
+            throw new IOException("Unable to read image file. The file format may not be supported. For SVG files, please use File > Import SVG instead.");
+        }
         this.imagePath = imageFile.getAbsolutePath();
         this.width = image.getWidth();
         this.height = image.getHeight();
