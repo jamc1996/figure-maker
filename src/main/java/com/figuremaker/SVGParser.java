@@ -345,8 +345,10 @@ public class SVGParser {
             int estimatedHeight = fontSize + 10;
             
             // Create text element with custom TextElement that supports color
+            // Note: TextElement draws text with a 5-pixel left padding (x + 5),
+            // so we subtract 5 from the x position to align with SVG coordinates
             TextElementWithColor textElem = new TextElementWithColor(
-                (int)x + offsetX,
+                (int)x + offsetX - 5,
                 (int)y + offsetY - fontSize, // SVG y is baseline, adjust for top
                 estimatedWidth,
                 estimatedHeight,
