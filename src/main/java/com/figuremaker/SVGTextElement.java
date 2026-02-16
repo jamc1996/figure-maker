@@ -38,8 +38,6 @@ public class SVGTextElement extends CanvasElement {
         g2d.setColor(textColor);
         g2d.setFont(font);
         
-        FontMetrics fm = g2d.getFontMetrics();
-        
         // In SVG, y coordinate is at the baseline
         // We position the element's y at the baseline, so draw text there
         g2d.drawString(text, x, y);
@@ -49,6 +47,7 @@ public class SVGTextElement extends CanvasElement {
         
         // Draw selection indicator if selected
         if (selected) {
+            FontMetrics fm = g2d.getFontMetrics(font);
             g2d.setColor(Color.BLUE);
             g2d.setStroke(new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0));
             

@@ -40,8 +40,8 @@ public class GroupElement extends CanvasElement {
             child.draw(g);
         }
         
-        // Restore original clip if we applied one
-        if (isClippingMask && oldClip != null) {
+        // Restore original clip if we applied clipping
+        if (isClippingMask) {
             g2d.setClip(oldClip);
         }
         
