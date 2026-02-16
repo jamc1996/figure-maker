@@ -479,6 +479,14 @@ public class FigureCanvas extends JPanel {
                 ImageElement imageElement = (ImageElement) element;
                 jsonElement.addProperty("imagePath", imageElement.getImagePath());
                 jsonElement.addProperty("imageData", imageElement.getImageAsBase64());
+            } else if (element instanceof SVGTextElement) {
+                SVGTextElement svgTextElement = (SVGTextElement) element;
+                jsonElement.addProperty("text", svgTextElement.getText());
+                jsonElement.addProperty("fontName", svgTextElement.getFont().getName());
+                jsonElement.addProperty("fontSize", svgTextElement.getFont().getSize());
+                jsonElement.addProperty("fontStyle", svgTextElement.getFont().getStyle());
+                jsonElement.addProperty("textColor", colorToString(svgTextElement.getTextColor()));
+                jsonElement.addProperty("rotation", svgTextElement.getRotation());
             } else if (element instanceof TextElement) {
                 TextElement textElement = (TextElement) element;
                 jsonElement.addProperty("text", textElement.getText());
@@ -533,6 +541,14 @@ public class FigureCanvas extends JPanel {
                         childJson.addProperty("strokeColor", colorToString(path.getStrokeColor()));
                         childJson.addProperty("strokeWidth", path.getStrokeWidth());
                         childJson.addProperty("pathData", pathToString(path.getPath()));
+                    } else if (child instanceof SVGTextElement) {
+                        SVGTextElement svgText = (SVGTextElement) child;
+                        childJson.addProperty("text", svgText.getText());
+                        childJson.addProperty("fontName", svgText.getFont().getName());
+                        childJson.addProperty("fontSize", svgText.getFont().getSize());
+                        childJson.addProperty("fontStyle", svgText.getFont().getStyle());
+                        childJson.addProperty("textColor", colorToString(svgText.getTextColor()));
+                        childJson.addProperty("rotation", svgText.getRotation());
                     } else if (child instanceof TextElement) {
                         TextElement text = (TextElement) child;
                         childJson.addProperty("text", text.getText());
@@ -598,6 +614,17 @@ public class FigureCanvas extends JPanel {
                     
                     TextElement textElement = new TextElement(x, y, width, height, text, font);
                     elements.add(textElement);
+                } else if (type.equals("svg-text")) {
+                    String text = jsonElement.get("text").getAsString();
+                    String fontName = jsonElement.get("fontName").getAsString();
+                    int fontSize = jsonElement.get("fontSize").getAsInt();
+                    int fontStyle = jsonElement.get("fontStyle").getAsInt();
+                    Font font = new Font(fontName, fontStyle, fontSize);
+                    Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
+                    double rotation = jsonElement.has("rotation") ? jsonElement.get("rotation").getAsDouble() : 0.0;
+                    
+                    SVGTextElement svgTextElement = new SVGTextElement(x, y, width, height, text, font, textColor, rotation);
+                    elements.add(svgTextElement);
                 } else if (type.equals("rect")) {
                     Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
                     Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
@@ -672,14 +699,18 @@ public class FigureCanvas extends JPanel {
             String pathData = jsonElement.get("pathData").getAsString();
             java.awt.geom.Path2D.Double path = stringToPath(pathData);
             return new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
-        } else if (type.equals("text")) {
+        } else if (type.equals("text") || type.equals("svg-text")) {
             String text = jsonElement.get("text").getAsString();
             String fontName = jsonElement.get("fontName").getAsString();
             int fontSize = jsonElement.get("fontSize").getAsInt();
             int fontStyle = jsonElement.get("fontStyle").getAsInt();
             Font font = new Font(fontName, fontStyle, fontSize);
             
-            if (jsonElement.has("textColor")) {
+            if (type.equals("svg-text")) {
+                Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
+                double rotation = jsonElement.has("rotation") ? jsonElement.get("rotation").getAsDouble() : 0.0;
+                return new SVGTextElement(x, y, width, height, text, font, textColor, rotation);
+            } else if (jsonElement.has("textColor")) {
                 Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
                 return new TextElementWithColor(x, y, width, height, text, font, textColor);
             } else {

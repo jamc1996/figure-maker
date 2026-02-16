@@ -306,6 +306,10 @@ public class SVGParser {
             double x = parseLength(textElement.getAttribute("x"));
             double y = parseLength(textElement.getAttribute("y"));
             
+            // Parse transform attribute for rotation
+            String transform = textElement.getAttribute("transform");
+            double rotation = parseRotation(transform);
+            
             // Parse font properties
             String fontFamily = textElement.getAttribute("font-family");
             if (fontFamily.isEmpty()) fontFamily = "Arial";
@@ -344,17 +348,18 @@ public class SVGParser {
             int estimatedWidth = textContent.length() * fontSize / 2;
             int estimatedHeight = fontSize + 10;
             
-            // Create text element with custom TextElement that supports color
-            // Note: TextElement draws text with a 5-pixel left padding (x + 5),
-            // so we subtract 5 from the x position to align with SVG coordinates
-            TextElementWithColor textElem = new TextElementWithColor(
-                (int)x + offsetX - 5,
-                (int)y + offsetY - fontSize, // SVG y is baseline, adjust for top
+            // Create text element with proper SVG positioning
+            // TextElement draws text at x+5, y+ascent+5
+            // SVG text is positioned at baseline, so we need to adjust
+            SVGTextElement textElem = new SVGTextElement(
+                (int)x + offsetX,
+                (int)y + offsetY,
                 estimatedWidth,
                 estimatedHeight,
                 textContent.trim(),
                 font,
-                fillColor
+                fillColor,
+                rotation
             );
             elements.add(textElem);
         } catch (Exception e) {
@@ -692,5 +697,24 @@ public class SVGParser {
         }
         
         return translation;
+    }
+    
+    private static double parseRotation(String transform) {
+        if (transform == null || transform.isEmpty()) return 0.0;
+        
+        // Parse rotate() transform: rotate(angle) or rotate(angle cx cy)
+        // Match the angle (first number after rotate()
+        Pattern pattern = Pattern.compile("rotate\\(\\s*([\\d.\\-+]+)");
+        Matcher matcher = pattern.matcher(transform);
+        
+        if (matcher.find()) {
+            try {
+                return Double.parseDouble(matcher.group(1).trim());
+            } catch (NumberFormatException e) {
+                // Ignore parsing errors
+            }
+        }
+        
+        return 0.0;
     }
 }

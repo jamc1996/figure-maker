@@ -26,9 +26,23 @@ public class GroupElement extends CanvasElement {
     public void draw(Graphics g) {
         Graphics2D g2d = (Graphics2D) g;
         
+        // If this is a clipping mask, apply clipping to children
+        Shape oldClip = null;
+        if (isClippingMask) {
+            oldClip = g2d.getClip();
+            // Create a rectangular clip region
+            Rectangle clipRect = new Rectangle(x, y, width, height);
+            g2d.setClip(clipRect);
+        }
+        
         // Draw all children
         for (CanvasElement child : children) {
             child.draw(g);
+        }
+        
+        // Restore original clip if we applied one
+        if (isClippingMask && oldClip != null) {
+            g2d.setClip(oldClip);
         }
         
         // Draw selection border around the entire group
