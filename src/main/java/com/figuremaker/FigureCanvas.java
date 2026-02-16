@@ -18,13 +18,17 @@ public class FigureCanvas extends JPanel {
     private int resizeHandle; // -1=none, 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
     private int startWidth;
     private int startHeight;
+    private double scale = 1.0;
+    private static final double ZOOM_STEP = 1.1;
+    private static final double MIN_SCALE = 0.1;
+    private static final double MAX_SCALE = 10.0;
     
     public FigureCanvas() {
         elements = new ArrayList<>();
         setPreferredSize(new Dimension(800, 600));
         setBackground(Color.WHITE);
         setLayout(null);
-        
+        setFocusable(true);
         setupMouseListeners();
     }
     
@@ -53,6 +57,51 @@ public class FigureCanvas extends JPanel {
         
         addMouseListener(mouseAdapter);
         addMouseMotionListener(mouseAdapter);
+        addMouseWheelListener(new MouseWheelListener() {
+            @Override
+            public void mouseWheelMoved(MouseWheelEvent e) {
+                // Zoom when Ctrl or Meta is held (Ctrl on Windows/Linux, Cmd on macOS)
+                if (e.isControlDown() || e.isMetaDown()) {
+                    int notches = e.getWheelRotation();
+                    if (notches < 0) {
+                        zoomIn();
+                    } else {
+                        zoomOut();
+                    }
+                }
+            }
+        });
+
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                int code = e.getKeyCode();
+                char c = e.getKeyChar();
+
+                // Delete selected element with Backspace/Delete, but don't intercept when editing text
+                if (code == KeyEvent.VK_BACK_SPACE || code == KeyEvent.VK_DELETE) {
+                    if (selectedElement instanceof TextElement) {
+                        TextElement te = (TextElement) selectedElement;
+                        if (te.isEditing()) return;
+                    }
+
+                    if (selectedElement != null) {
+                        elements.remove(selectedElement);
+                        selectedElement = null;
+                        repaint();
+                    }
+                    return;
+                }
+
+                if (c == '+') {
+                    zoomIn();
+                } else if (c == '-') {
+                    zoomOut();
+                } else if (c == '0') {
+                    resetZoom();
+                }
+            }
+        });
         
         // Add mouse motion listener for cursor changes
         addMouseMotionListener(new MouseMotionAdapter() {
@@ -64,10 +113,14 @@ public class FigureCanvas extends JPanel {
     }
     
     private void updateCursor(int x, int y) {
+        // Convert screen coords to logical (canvas) coords
+        int lx = (int) (x / scale);
+        int ly = (int) (y / scale);
+
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
-            int handle = imageElement.getResizeHandleAt(x, y);
-            
+            int handle = imageElement.getResizeHandleAt(lx, ly);
+
             switch (handle) {
                 case 0: // Top-left
                 case 3: // Bottom-right
@@ -87,6 +140,7 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMousePressed(MouseEvent e) {
+        requestFocusInWindow();
         // Stop editing any text element
         for (CanvasElement element : elements) {
             if (element instanceof TextElement) {
@@ -100,12 +154,14 @@ public class FigureCanvas extends JPanel {
         // Check if clicking on a resize handle of the selected element
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
-            resizeHandle = imageElement.getResizeHandleAt(e.getX(), e.getY());
-            
+            int lx = (int) (e.getX() / scale);
+            int ly = (int) (e.getY() / scale);
+            resizeHandle = imageElement.getResizeHandleAt(lx, ly);
+
             if (resizeHandle >= 0) {
                 isResizing = true;
                 isDragging = false;
-                dragStart = e.getPoint();
+                dragStart = new Point(lx, ly);
                 elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
                 startWidth = selectedElement.getWidth();
                 startHeight = selectedElement.getHeight();
@@ -113,8 +169,10 @@ public class FigureCanvas extends JPanel {
             }
         }
         
-        // Find element at click position
-        CanvasElement clickedElement = findElementAt(e.getX(), e.getY());
+        // Find element at click position (convert to logical coords)
+        int lx = (int) (e.getX() / scale);
+        int ly = (int) (e.getY() / scale);
+        CanvasElement clickedElement = findElementAt(lx, ly);
         
         if (clickedElement != null) {
             if (selectedElement != null) {
@@ -123,7 +181,7 @@ public class FigureCanvas extends JPanel {
             selectedElement = clickedElement;
             selectedElement.setSelected(true);
             
-            dragStart = e.getPoint();
+            dragStart = new Point(lx, ly);
             elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
             isDragging = false;
             isResizing = false;
@@ -195,25 +253,27 @@ public class FigureCanvas extends JPanel {
     
     private void handleMouseDragged(MouseEvent e) {
         if (selectedElement != null && dragStart != null) {
+            int lx = (int) (e.getX() / scale);
+            int ly = (int) (e.getY() / scale);
+
             if (isResizing) {
-                int dx = e.getX() - dragStart.x;
-                int dy = e.getY() - dragStart.y;
-                
+                int dx = lx - dragStart.x;
+                int dy = ly - dragStart.y;
+
                 int newX = elementDragStart.x;
                 int newY = elementDragStart.y;
                 int newWidth = startWidth;
                 int newHeight = startHeight;
-                
+
                 // Calculate aspect ratio if Shift is held
                 boolean preserveAspect = e.isShiftDown();
                 double aspectRatio = (double) startWidth / startHeight;
-                
+
                 switch (resizeHandle) {
                     case 0: // Top-left
                         newWidth = startWidth - dx;
                         newHeight = startHeight - dy;
                         if (preserveAspect) {
-                            // Use the larger dimension change to preserve aspect ratio
                             if (Math.abs(dx) > Math.abs(dy)) {
                                 newHeight = (int) (newWidth / aspectRatio);
                                 dy = startHeight - newHeight;
@@ -263,19 +323,19 @@ public class FigureCanvas extends JPanel {
                         }
                         break;
                 }
-                
+
                 // Enforce minimum size
                 if (newWidth > 20 && newHeight > 20) {
                     selectedElement.setPosition(newX, newY);
                     selectedElement.setSize(newWidth, newHeight);
                 }
-                
+
                 repaint();
             } else {
                 isDragging = true;
-                int dx = e.getX() - dragStart.x;
-                int dy = e.getY() - dragStart.y;
-                
+                int dx = lx - dragStart.x;
+                int dy = ly - dragStart.y;
+
                 selectedElement.setPosition(elementDragStart.x + dx, elementDragStart.y + dy);
                 repaint();
             }
@@ -372,10 +432,36 @@ public class FigureCanvas extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        
+        Graphics2D g2 = (Graphics2D) g.create();
+        java.awt.geom.AffineTransform at = g2.getTransform();
+        g2.scale(scale, scale);
+
         for (CanvasElement element : elements) {
-            element.draw(g);
+            element.draw(g2);
         }
+
+        g2.setTransform(at);
+        g2.dispose();
+    }
+
+    public void zoomIn() {
+        setScale(scale * ZOOM_STEP);
+    }
+
+    public void zoomOut() {
+        setScale(scale / ZOOM_STEP);
+    }
+
+    public void resetZoom() {
+        setScale(1.0);
+    }
+
+    public void setScale(double s) {
+        double newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
+        if (Math.abs(newScale - this.scale) < 1e-6) return;
+        this.scale = newScale;
+        revalidate();
+        repaint();
     }
     
     public void saveToFile(File file) throws IOException {
