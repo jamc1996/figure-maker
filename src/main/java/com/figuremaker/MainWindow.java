@@ -35,12 +35,17 @@ public class MainWindow extends JFrame {
         saveCanvasItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, 
             Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         
+        JMenuItem importSVGItem = new JMenuItem("Import SVG");
+        importSVGItem.addActionListener(e -> importSVG());
+        
         JMenuItem exitItem = new JMenuItem("Exit");
         exitItem.addActionListener(e -> System.exit(0));
         
         fileMenu.add(newCanvasItem);
         fileMenu.add(openCanvasItem);
         fileMenu.add(saveCanvasItem);
+        fileMenu.addSeparator();
+        fileMenu.add(importSVGItem);
         fileMenu.addSeparator();
         fileMenu.add(exitItem);
         
@@ -152,5 +157,25 @@ public class MainWindow extends JFrame {
     
     private void addTextBox() {
         canvas.addTextBox();
+    }
+    
+    private void importSVG() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+            "SVG Files (*.svg)", "svg"));
+        
+        int result = fileChooser.showOpenDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            try {
+                canvas.importSVG(file);
+                JOptionPane.showMessageDialog(this, "SVG imported successfully!");
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, 
+                    "Error importing SVG: " + ex.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                ex.printStackTrace();
+            }
+        }
     }
 }

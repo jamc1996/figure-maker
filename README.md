@@ -6,6 +6,11 @@ A Java desktop application for creating figures for academic publication.
 
 - **Canvas Management**: Create new canvas or open previously saved canvases
 - **Image Support**: Load PNG and JPEG images from your filesystem
+- **SVG Import**: Import SVG files with each element becoming individually editable
+  - Supports rectangles, circles, ellipses, and paths (including arc commands)
+  - Path commands supported: M, L, H, V, C, Q, A, Z (move, line, horizontal, vertical, cubic curve, quadratic curve, arc, close)
+  - Preserves fill colors, stroke colors, and stroke widths
+  - Handles grouped elements and basic transforms
 - **Image Positioning**: 
   - Drag and drop images to position them on the canvas
   - Right-click on selected images to set exact position (distance from upper left corner)
@@ -43,6 +48,12 @@ Or simply double-click the JAR file if your system is configured to run Java app
 2. Select a PNG or JPEG file from your filesystem
 3. The image will appear on the canvas at position (50, 50)
 
+### Importing SVG Files
+1. Click **File > Import SVG**
+2. Select an SVG file from your filesystem
+3. Each element in the SVG (rectangles, circles, ellipses, paths) will be imported as a separate, individually editable object on the canvas
+4. You can then select, move, and manipulate each element independently
+
 ### Positioning Images
 - **Drag and Drop**: Click and drag an image to move it
 - **Manual Positioning**: Right-click on a selected image and enter exact X and Y coordinates
@@ -66,5 +77,7 @@ Or simply double-click the JAR file if your system is configured to run Java app
 
 - Built with Java Swing for the GUI
 - Uses Gson for JSON serialization of canvas data
+- Uses Apache Batik for SVG parsing and element extraction
 - Images are embedded in saved files using Base64 encoding
+- SVG shapes are converted to native canvas elements for individual editing
 - Packaged as a fat JAR using maven-shade-plugin for easy distribution
