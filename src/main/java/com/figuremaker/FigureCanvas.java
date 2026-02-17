@@ -11,10 +11,14 @@ import java.util.List;
 public class FigureCanvas extends JPanel {
     private List<CanvasElement> elements;
     private CanvasElement selectedElement;
+    private List<CanvasElement> selectedElements; // For multiple selection
     private Point dragStart;
     private Point elementDragStart;
     private boolean isDragging;
     private boolean isResizing;
+    private boolean isAreaSelecting; // For area selection
+    private Point selectionStart; // Start point of area selection
+    private Point selectionEnd; // End point of area selection
     private int resizeHandle; // -1=none, 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
     private int startWidth;
     private int startHeight;
@@ -25,6 +29,7 @@ public class FigureCanvas extends JPanel {
     
     public FigureCanvas() {
         elements = new ArrayList<>();
+        selectedElements = new ArrayList<>();
         setPreferredSize(new Dimension(800, 600));
         setBackground(Color.WHITE);
         setLayout(null);
@@ -78,6 +83,12 @@ public class FigureCanvas extends JPanel {
                 int code = e.getKeyCode();
                 char c = e.getKeyChar();
 
+                // Select all with Ctrl/Cmd+A
+                if (code == KeyEvent.VK_A && (e.isControlDown() || e.isMetaDown())) {
+                    selectAll();
+                    return;
+                }
+
                 // Delete selected element with Backspace/Delete, but don't intercept when editing text
                 if (code == KeyEvent.VK_BACK_SPACE || code == KeyEvent.VK_DELETE) {
                     if (selectedElement instanceof TextElement) {
@@ -88,6 +99,13 @@ public class FigureCanvas extends JPanel {
                     if (selectedElement != null) {
                         elements.remove(selectedElement);
                         selectedElement = null;
+                        repaint();
+                    } else if (!selectedElements.isEmpty()) {
+                        // Delete all selected elements
+                        for (CanvasElement elem : selectedElements) {
+                            elements.remove(elem);
+                        }
+                        selectedElements.clear();
                         repaint();
                     }
                     return;
@@ -178,6 +196,8 @@ public class FigureCanvas extends JPanel {
             if (selectedElement != null) {
                 selectedElement.setSelected(false);
             }
+            // Clear multiple selection when single selecting
+            clearMultipleSelection();
             selectedElement = clickedElement;
             selectedElement.setSelected(true);
             
@@ -185,11 +205,19 @@ public class FigureCanvas extends JPanel {
             elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
             isDragging = false;
             isResizing = false;
+            isAreaSelecting = false;
         } else {
             if (selectedElement != null) {
                 selectedElement.setSelected(false);
                 selectedElement = null;
             }
+            // Clear multiple selection when clicking empty space
+            clearMultipleSelection();
+            
+            // Start area selection
+            isAreaSelecting = true;
+            selectionStart = new Point(lx, ly);
+            selectionEnd = new Point(lx, ly);
         }
         
         // Show popup menu on right-click
@@ -252,9 +280,17 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMouseDragged(MouseEvent e) {
+        int lx = (int) (e.getX() / scale);
+        int ly = (int) (e.getY() / scale);
+        
+        // Handle area selection
+        if (isAreaSelecting) {
+            selectionEnd = new Point(lx, ly);
+            repaint();
+            return;
+        }
+        
         if (selectedElement != null && dragStart != null) {
-            int lx = (int) (e.getX() / scale);
-            int ly = (int) (e.getY() / scale);
 
             if (isResizing) {
                 int dx = lx - dragStart.x;
@@ -343,6 +379,14 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMouseReleased(MouseEvent e) {
+        // Finalize area selection
+        if (isAreaSelecting) {
+            selectElementsInArea();
+            isAreaSelecting = false;
+            selectionStart = null;
+            selectionEnd = null;
+        }
+        
         isDragging = false;
         isResizing = false;
         resizeHandle = -1;
@@ -366,6 +410,53 @@ public class FigureCanvas extends JPanel {
             }
         }
         return null;
+    }
+    
+    private void selectElementsInArea() {
+        if (selectionStart == null || selectionEnd == null) return;
+        
+        // Calculate the selection rectangle
+        int x1 = Math.min(selectionStart.x, selectionEnd.x);
+        int y1 = Math.min(selectionStart.y, selectionEnd.y);
+        int x2 = Math.max(selectionStart.x, selectionEnd.x);
+        int y2 = Math.max(selectionStart.y, selectionEnd.y);
+        
+        // Clear previous selection
+        clearMultipleSelection();
+        
+        // Find all elements that intersect with the selection rectangle
+        for (CanvasElement element : elements) {
+            int ex = element.getX();
+            int ey = element.getY();
+            int ew = element.getWidth();
+            int eh = element.getHeight();
+            
+            // Check if element intersects with selection rectangle
+            if (ex + ew > x1 && ex < x2 && ey + eh > y1 && ey < y2) {
+                element.setSelected(true);
+                selectedElements.add(element);
+            }
+        }
+        
+        repaint();
+    }
+    
+    private void selectAll() {
+        clearMultipleSelection();
+        
+        for (CanvasElement element : elements) {
+            element.setSelected(true);
+            selectedElements.add(element);
+        }
+        
+        repaint();
+    }
+    
+    private void clearMultipleSelection() {
+        for (CanvasElement element : selectedElements) {
+            element.setSelected(false);
+        }
+        selectedElements.clear();
     }
     
     private void showPositionDialog() {
@@ -429,6 +520,16 @@ public class FigureCanvas extends JPanel {
         repaint();
     }
     
+    public void setCanvasSize(int width, int height) {
+        elements.clear();
+        if (selectedElement != null) {
+            selectedElement = null;
+        }
+        setPreferredSize(new Dimension(width, height));
+        revalidate();
+        repaint();
+    }
+    
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -441,6 +542,21 @@ public class FigureCanvas extends JPanel {
         }
 
         g2.setTransform(at);
+        
+        // Draw selection rectangle
+        if (isAreaSelecting && selectionStart != null && selectionEnd != null) {
+            int x1 = (int) (Math.min(selectionStart.x, selectionEnd.x) * scale);
+            int y1 = (int) (Math.min(selectionStart.y, selectionEnd.y) * scale);
+            int x2 = (int) (Math.max(selectionStart.x, selectionEnd.x) * scale);
+            int y2 = (int) (Math.max(selectionStart.y, selectionEnd.y) * scale);
+            
+            g2.setColor(new Color(100, 150, 255, 50)); // Light blue with transparency
+            g2.fillRect(x1, y1, x2 - x1, y2 - y1);
+            g2.setColor(new Color(100, 150, 255)); // Solid blue
+            g2.setStroke(new BasicStroke(1));
+            g2.drawRect(x1, y1, x2 - x1, y2 - y1);
+        }
+        
         g2.dispose();
     }
 
