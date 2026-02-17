@@ -5,6 +5,7 @@ A Java desktop application for creating figures for academic publication.
 ## Features
 
 - **Canvas Management**: Create new canvas or open previously saved canvases
+  - Set custom canvas size when creating a new canvas
 - **Image Support**: Load PNG and JPEG images from your filesystem
 - **SVG Import**: Import SVG files with each element becoming individually editable
   - Supports rectangles, circles, ellipses, and paths (including arc commands)
@@ -15,6 +16,15 @@ A Java desktop application for creating figures for academic publication.
   - Drag and drop images to position them on the canvas
   - Right-click on selected images to set exact position (distance from upper left corner)
 - **Text Boxes**: Create and edit text boxes on the canvas
+- **Selection Tools**:
+  - Click and drag on empty canvas to select multiple objects in an area
+  - Press Ctrl/Cmd+A to select all objects on the canvas
+  - Delete multiple selected objects with Backspace/Delete
+- **Zoom Controls**:
+  - Ctrl/Cmd + scroll wheel to zoom in/out (Mac-style pinch zoom support)
+  - Press `+` to zoom in
+  - Press `-` to zoom out
+  - Press `0` to reset zoom to 100%
 - **Save/Load**: Save your work and load it later in `.fmk` format
 
 ## Requirements
@@ -41,7 +51,9 @@ Or simply double-click the JAR file if your system is configured to run Java app
 
 ### Creating a New Canvas
 1. Launch the application
-2. Click **File > New Canvas** to start fresh (or just use the default empty canvas)
+2. Click **File > New Canvas** to start fresh
+3. Enter the desired canvas width and height in pixels
+4. Click OK to create the canvas with the specified size
 
 ### Adding Images
 1. Click **Edit > Add Image** or use the toolbar button
@@ -64,6 +76,18 @@ Or simply double-click the JAR file if your system is configured to run Java app
 3. Double-click the text box to start editing
 4. Type your text
 5. Click outside the text box to finish editing
+
+### Selecting Multiple Objects
+- **Area Selection**: Click and drag on empty canvas to draw a selection rectangle. All objects within or intersecting the rectangle will be selected
+- **Select All**: Press **Ctrl+A** (Windows/Linux) or **Cmd+A** (Mac) to select all objects on the canvas
+- **Delete Multiple**: After selecting multiple objects, press **Backspace** or **Delete** to remove them all
+
+### Zooming the Canvas
+- **Ctrl/Cmd + Scroll**: Hold **Ctrl** (Windows/Linux) or **Cmd** (Mac) and scroll with your mouse or trackpad to zoom in/out
+- **Keyboard Shortcuts**: 
+  - Press **+** to zoom in
+  - Press **-** to zoom out
+  - Press **0** to reset zoom to 100%
 
 ### Saving Your Work
 1. Click **File > Save Canvas**

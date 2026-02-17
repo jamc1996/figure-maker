@@ -525,6 +525,7 @@ public class FigureCanvas extends JPanel {
         if (selectedElement != null) {
             selectedElement = null;
         }
+        selectedElements.clear();
         setPreferredSize(new Dimension(width, height));
         revalidate();
         repaint();
