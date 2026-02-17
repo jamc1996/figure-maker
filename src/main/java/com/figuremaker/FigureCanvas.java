@@ -74,11 +74,21 @@ public class FigureCanvas extends JPanel {
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
                 // Zoom when Ctrl or Meta is held (Ctrl on Windows/Linux, Cmd on macOS)
+                // OR when using pinch gesture on Mac (detected as Ctrl without actual key press)
                 if (e.isControlDown() || e.isMetaDown()) {
                     int notches = e.getWheelRotation();
                     if (notches < 0) {
                         zoomIn();
                     } else {
+                        zoomOut();
+                    }
+                } else if (e.getPreciseWheelRotation() != 0.0) {
+                    // Handle pinch-to-zoom on Mac trackpad (no modifier keys)
+                    // Pinch gestures send precise wheel rotation values
+                    double rotation = e.getPreciseWheelRotation();
+                    if (rotation < 0) {
+                        zoomIn();
+                    } else if (rotation > 0) {
                         zoomOut();
                     }
                 }
@@ -98,8 +108,9 @@ public class FigureCanvas extends JPanel {
                     return;
                 }
                 
-                // Redo with Ctrl/Cmd+Shift+Z
-                if (code == KeyEvent.VK_Z && ctrlOrCmd && e.isShiftDown()) {
+                // Redo with Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y (Mac standard)
+                if ((code == KeyEvent.VK_Z && ctrlOrCmd && e.isShiftDown()) ||
+                    (code == KeyEvent.VK_Y && ctrlOrCmd)) {
                     redo();
                     return;
                 }

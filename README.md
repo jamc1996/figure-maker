@@ -22,12 +22,13 @@ A Java desktop application for creating figures for academic publication.
   - Delete multiple selected objects with Backspace/Delete
 - **Edit Operations**:
   - Ctrl/Cmd+Z to undo last change
-  - Ctrl/Cmd+Shift+Z to redo
+  - Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y to redo
   - Ctrl/Cmd+X to cut selected object(s)
   - Ctrl/Cmd+C to copy selected object(s)
   - Ctrl/Cmd+V to paste object(s) (pasted with small offset for visibility)
 - **Zoom Controls**:
-  - Ctrl/Cmd + scroll wheel to zoom in/out (Mac-style pinch zoom support)
+  - Ctrl/Cmd + scroll wheel to zoom in/out
+  - Mac trackpad: Pinch gesture (two fingers) to zoom in/out
   - Press `+` to zoom in
   - Press `-` to zoom out
   - Press `0` to reset zoom to 100%
@@ -90,7 +91,7 @@ Or simply double-click the JAR file if your system is configured to run Java app
 
 ### Editing Operations
 - **Undo**: Press **Ctrl+Z** (Windows/Linux) or **Cmd+Z** (Mac) to undo the last change
-- **Redo**: Press **Ctrl+Shift+Z** (Windows/Linux) or **Cmd+Shift+Z** (Mac) to redo
+- **Redo**: Press **Ctrl+Shift+Z** or **Ctrl+Y** (Windows/Linux) or **Cmd+Shift+Z** or **Cmd+Y** (Mac) to redo
 - **Cut**: Press **Ctrl+X** (Windows/Linux) or **Cmd+X** (Mac) to cut selected object(s) to clipboard
 - **Copy**: Press **Ctrl+C** (Windows/Linux) or **Cmd+C** (Mac) to copy selected object(s) to clipboard
 - **Paste**: Press **Ctrl+V** (Windows/Linux) or **Cmd+V** (Mac) to paste object(s) from clipboard
@@ -98,6 +99,7 @@ Or simply double-click the JAR file if your system is configured to run Java app
 
 ### Zooming the Canvas
 - **Ctrl/Cmd + Scroll**: Hold **Ctrl** (Windows/Linux) or **Cmd** (Mac) and scroll with your mouse or trackpad to zoom in/out
+- **Mac Trackpad Pinch**: Use two-finger pinch gesture on Mac trackpad to zoom in/out (no modifier keys needed)
 - **Keyboard Shortcuts**: 
   - Press **+** to zoom in
   - Press **-** to zoom out
