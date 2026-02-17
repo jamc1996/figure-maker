@@ -27,6 +27,14 @@ public class FigureCanvas extends JPanel {
     private static final double MIN_SCALE = 0.1;
     private static final double MAX_SCALE = 10.0;
     
+    // Undo/Redo support
+    private List<List<CanvasElement>> undoStack = new ArrayList<>();
+    private List<List<CanvasElement>> redoStack = new ArrayList<>();
+    private static final int MAX_UNDO_HISTORY = 50;
+    
+    // Clipboard support
+    private List<JsonObject> clipboard = new ArrayList<>();
+    
     public FigureCanvas() {
         elements = new ArrayList<>();
         selectedElements = new ArrayList<>();
@@ -82,9 +90,40 @@ public class FigureCanvas extends JPanel {
             public void keyPressed(KeyEvent e) {
                 int code = e.getKeyCode();
                 char c = e.getKeyChar();
+                boolean ctrlOrCmd = e.isControlDown() || e.isMetaDown();
+
+                // Undo with Ctrl/Cmd+Z
+                if (code == KeyEvent.VK_Z && ctrlOrCmd && !e.isShiftDown()) {
+                    undo();
+                    return;
+                }
+                
+                // Redo with Ctrl/Cmd+Shift+Z
+                if (code == KeyEvent.VK_Z && ctrlOrCmd && e.isShiftDown()) {
+                    redo();
+                    return;
+                }
+                
+                // Cut with Ctrl/Cmd+X
+                if (code == KeyEvent.VK_X && ctrlOrCmd) {
+                    cut();
+                    return;
+                }
+                
+                // Copy with Ctrl/Cmd+C
+                if (code == KeyEvent.VK_C && ctrlOrCmd) {
+                    copy();
+                    return;
+                }
+                
+                // Paste with Ctrl/Cmd+V
+                if (code == KeyEvent.VK_V && ctrlOrCmd) {
+                    paste();
+                    return;
+                }
 
                 // Select all with Ctrl/Cmd+A
-                if (code == KeyEvent.VK_A && (e.isControlDown() || e.isMetaDown())) {
+                if (code == KeyEvent.VK_A && ctrlOrCmd) {
                     selectAll();
                     return;
                 }
@@ -97,11 +136,13 @@ public class FigureCanvas extends JPanel {
                     }
 
                     if (selectedElement != null) {
+                        saveUndoState();
                         elements.remove(selectedElement);
                         selectedElement = null;
                         repaint();
                     } else if (!selectedElements.isEmpty()) {
                         // Delete all selected elements
+                        saveUndoState();
                         for (CanvasElement elem : selectedElements) {
                             elements.remove(elem);
                         }
@@ -387,6 +428,11 @@ public class FigureCanvas extends JPanel {
             selectionEnd = null;
         }
         
+        // Save undo state after drag or resize
+        if (isDragging || isResizing) {
+            saveUndoState();
+        }
+        
         isDragging = false;
         isResizing = false;
         resizeHandle = -1;
@@ -459,6 +505,266 @@ public class FigureCanvas extends JPanel {
         selectedElements.clear();
     }
     
+    private void saveUndoState() {
+        // Create a deep copy of the current elements list
+        List<CanvasElement> stateCopy = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            stateCopy.add(element);
+        }
+        undoStack.add(stateCopy);
+        
+        // Limit undo history size
+        if (undoStack.size() > MAX_UNDO_HISTORY) {
+            undoStack.remove(0);
+        }
+        
+        // Clear redo stack when a new action is performed
+        redoStack.clear();
+    }
+    
+    private void undo() {
+        if (undoStack.isEmpty()) {
+            return;
+        }
+        
+        // Save current state to redo stack
+        List<CanvasElement> currentState = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            currentState.add(element);
+        }
+        redoStack.add(currentState);
+        
+        // Restore previous state
+        List<CanvasElement> previousState = undoStack.remove(undoStack.size() - 1);
+        elements.clear();
+        elements.addAll(previousState);
+        
+        // Clear selections
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        repaint();
+    }
+    
+    private void redo() {
+        if (redoStack.isEmpty()) {
+            return;
+        }
+        
+        // Save current state to undo stack
+        List<CanvasElement> currentState = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            currentState.add(element);
+        }
+        undoStack.add(currentState);
+        
+        // Restore next state
+        List<CanvasElement> nextState = redoStack.remove(redoStack.size() - 1);
+        elements.clear();
+        elements.addAll(nextState);
+        
+        // Clear selections
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        repaint();
+    }
+    
+    private void copy() {
+        clipboard.clear();
+        
+        // Get elements to copy (either single selected or multiple selected)
+        List<CanvasElement> elementsToCopy = new ArrayList<>();
+        if (selectedElement != null) {
+            elementsToCopy.add(selectedElement);
+        } else if (!selectedElements.isEmpty()) {
+            elementsToCopy.addAll(selectedElements);
+        } else {
+            return; // Nothing to copy
+        }
+        
+        // Serialize selected elements to JSON
+        for (CanvasElement element : elementsToCopy) {
+            JsonObject jsonElement = serializeElement(element);
+            if (jsonElement != null) {
+                clipboard.add(jsonElement);
+            }
+        }
+    }
+    
+    private void cut() {
+        if (selectedElement == null && selectedElements.isEmpty()) {
+            return; // Nothing to cut
+        }
+        
+        // Copy first
+        copy();
+        
+        // Then delete
+        saveUndoState();
+        if (selectedElement != null) {
+            elements.remove(selectedElement);
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        } else if (!selectedElements.isEmpty()) {
+            for (CanvasElement elem : selectedElements) {
+                elements.remove(elem);
+            }
+            selectedElements.clear();
+        }
+        
+        repaint();
+    }
+    
+    private void paste() {
+        if (clipboard.isEmpty()) {
+            return; // Nothing to paste
+        }
+        
+        saveUndoState();
+        
+        // Clear current selection
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        // Paste elements with offset to make them visible
+        int offsetX = 20;
+        int offsetY = 20;
+        
+        for (JsonObject jsonElement : clipboard) {
+            CanvasElement element = deserializeElement(jsonElement, offsetX, offsetY);
+            if (element != null) {
+                elements.add(element);
+                element.setSelected(true);
+                selectedElements.add(element);
+            }
+        }
+        
+        repaint();
+    }
+    
+    private JsonObject serializeElement(CanvasElement element) {
+        JsonObject jsonElement = new JsonObject();
+        jsonElement.addProperty("type", element.getType());
+        jsonElement.addProperty("x", element.getX());
+        jsonElement.addProperty("y", element.getY());
+        jsonElement.addProperty("width", element.getWidth());
+        jsonElement.addProperty("height", element.getHeight());
+        
+        if (element instanceof ImageElement) {
+            ImageElement imageElement = (ImageElement) element;
+            jsonElement.addProperty("imagePath", imageElement.getImagePath());
+            try {
+                jsonElement.addProperty("imageData", imageElement.getImageAsBase64());
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+        } else if (element instanceof SVGTextElement) {
+            SVGTextElement svgTextElement = (SVGTextElement) element;
+            jsonElement.addProperty("text", svgTextElement.getText());
+            jsonElement.addProperty("fontName", svgTextElement.getFont().getName());
+            jsonElement.addProperty("fontSize", svgTextElement.getFont().getSize());
+            jsonElement.addProperty("fontStyle", svgTextElement.getFont().getStyle());
+            jsonElement.addProperty("textColor", colorToString(svgTextElement.getTextColor()));
+            jsonElement.addProperty("rotation", svgTextElement.getRotation());
+        } else if (element instanceof TextElement) {
+            TextElement textElement = (TextElement) element;
+            jsonElement.addProperty("text", textElement.getText());
+            jsonElement.addProperty("fontName", textElement.getFont().getName());
+            jsonElement.addProperty("fontSize", textElement.getFont().getSize());
+            jsonElement.addProperty("fontStyle", textElement.getFont().getStyle());
+        } else if (element instanceof RectElement) {
+            RectElement rectElement = (RectElement) element;
+            jsonElement.addProperty("fillColor", colorToString(rectElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(rectElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", rectElement.getStrokeWidth());
+        } else if (element instanceof CircleElement) {
+            CircleElement circleElement = (CircleElement) element;
+            jsonElement.addProperty("fillColor", colorToString(circleElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(circleElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", circleElement.getStrokeWidth());
+        } else if (element instanceof PathElement) {
+            PathElement pathElement = (PathElement) element;
+            jsonElement.addProperty("fillColor", colorToString(pathElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(pathElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", pathElement.getStrokeWidth());
+            jsonElement.addProperty("pathData", pathToString(pathElement.getPath()));
+        }
+        
+        return jsonElement;
+    }
+    
+    private CanvasElement deserializeElement(JsonObject jsonElement, int offsetX, int offsetY) {
+        String type = jsonElement.get("type").getAsString();
+        int x = jsonElement.get("x").getAsInt() + offsetX;
+        int y = jsonElement.get("y").getAsInt() + offsetY;
+        int width = jsonElement.get("width").getAsInt();
+        int height = jsonElement.get("height").getAsInt();
+        
+        if (type.equals("image")) {
+            String imagePath = jsonElement.get("imagePath").getAsString();
+            String imageData = jsonElement.get("imageData").getAsString();
+            
+            try {
+                java.awt.image.BufferedImage image = ImageElement.decodeBase64Image(imageData);
+                return new ImageElement(image, x, y, width, height, imagePath);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+        } else if (type.equals("svgtext")) {
+            String text = jsonElement.get("text").getAsString();
+            String fontName = jsonElement.get("fontName").getAsString();
+            int fontSize = jsonElement.get("fontSize").getAsInt();
+            int fontStyle = jsonElement.get("fontStyle").getAsInt();
+            Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
+            double rotation = jsonElement.get("rotation").getAsDouble();
+            
+            Font font = new Font(fontName, fontStyle, fontSize);
+            return new SVGTextElement(x, y, width, height, text, font, textColor, rotation);
+        } else if (type.equals("text")) {
+            String text = jsonElement.get("text").getAsString();
+            String fontName = jsonElement.get("fontName").getAsString();
+            int fontSize = jsonElement.get("fontSize").getAsInt();
+            int fontStyle = jsonElement.get("fontStyle").getAsInt();
+            
+            Font font = new Font(fontName, fontStyle, fontSize);
+            return new TextElement(x, y, width, height, text, font);
+        } else if (type.equals("rect")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            
+            return new RectElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("circle")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            
+            return new CircleElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("path")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            String pathData = jsonElement.get("pathData").getAsString();
+            
+            java.awt.geom.Path2D.Double path = stringToPath(pathData);
+            return new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
+        }
+        
+        return null;
+    }
+    
     private void showPositionDialog() {
         if (selectedElement == null) return;
         
@@ -490,6 +796,7 @@ public class FigureCanvas extends JPanel {
     
     public void addImage(File imageFile) {
         try {
+            saveUndoState();
             ImageElement imageElement = new ImageElement(imageFile, 50, 50);
             elements.add(imageElement);
             repaint();
@@ -501,12 +808,14 @@ public class FigureCanvas extends JPanel {
     }
     
     public void addTextBox() {
+        saveUndoState();
         TextElement textElement = new TextElement(50, 50);
         elements.add(textElement);
         repaint();
     }
     
     public void importSVG(File svgFile) throws Exception {
+        saveUndoState();
         List<CanvasElement> svgElements = SVGParser.parseSVG(svgFile);
         elements.addAll(svgElements);
         repaint();
