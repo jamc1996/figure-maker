@@ -28,7 +28,7 @@ A Java desktop application for creating figures for academic publication.
   - Ctrl/Cmd+V to paste object(s) (pasted with small offset for visibility)
 - **Zoom Controls**:
   - Ctrl/Cmd + scroll wheel to zoom in/out
-  - Mac trackpad: Pinch gesture (two fingers) to zoom in/out
+  - Mac trackpad: Pinch gesture (detected as Ctrl+scroll) to zoom in/out
   - Press `+` to zoom in
   - Press `-` to zoom out
   - Press `0` to reset zoom to 100%
@@ -99,7 +99,7 @@ Or simply double-click the JAR file if your system is configured to run Java app
 
 ### Zooming the Canvas
 - **Ctrl/Cmd + Scroll**: Hold **Ctrl** (Windows/Linux) or **Cmd** (Mac) and scroll with your mouse or trackpad to zoom in/out
-- **Mac Trackpad Pinch**: Use two-finger pinch gesture on Mac trackpad to zoom in/out (no modifier keys needed)
+- **Mac Trackpad Pinch**: Two-finger pinch gesture on Mac trackpad automatically triggers zoom (detected as Ctrl+scroll by the system)
 - **Keyboard Shortcuts**: 
   - Press **+** to zoom in
   - Press **-** to zoom out
