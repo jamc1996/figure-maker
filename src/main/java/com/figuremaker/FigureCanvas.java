@@ -506,10 +506,16 @@ public class FigureCanvas extends JPanel {
     }
     
     private void saveUndoState() {
-        // Create a deep copy of the current elements list
+        // Create a deep copy of the current elements list through serialization
         List<CanvasElement> stateCopy = new ArrayList<>();
         for (CanvasElement element : elements) {
-            stateCopy.add(element);
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    stateCopy.add(copy);
+                }
+            }
         }
         undoStack.add(stateCopy);
         
@@ -527,10 +533,16 @@ public class FigureCanvas extends JPanel {
             return;
         }
         
-        // Save current state to redo stack
+        // Save current state to redo stack (deep copy)
         List<CanvasElement> currentState = new ArrayList<>();
         for (CanvasElement element : elements) {
-            currentState.add(element);
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    currentState.add(copy);
+                }
+            }
         }
         redoStack.add(currentState);
         
@@ -554,10 +566,16 @@ public class FigureCanvas extends JPanel {
             return;
         }
         
-        // Save current state to undo stack
+        // Save current state to undo stack (deep copy)
         List<CanvasElement> currentState = new ArrayList<>();
         for (CanvasElement element : elements) {
-            currentState.add(element);
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    currentState.add(copy);
+                }
+            }
         }
         undoStack.add(currentState);
         
@@ -666,6 +684,7 @@ public class FigureCanvas extends JPanel {
             try {
                 jsonElement.addProperty("imageData", imageElement.getImageAsBase64());
             } catch (IOException e) {
+                System.err.println("Error serializing image element: " + e.getMessage());
                 e.printStackTrace();
                 return null;
             }
@@ -719,6 +738,7 @@ public class FigureCanvas extends JPanel {
                 java.awt.image.BufferedImage image = ImageElement.decodeBase64Image(imageData);
                 return new ImageElement(image, x, y, width, height, imagePath);
             } catch (IOException e) {
+                System.err.println("Error deserializing image element: " + e.getMessage());
                 e.printStackTrace();
                 return null;
             }
