@@ -8,11 +8,13 @@ public class GroupElement extends CanvasElement {
     private List<CanvasElement> children;
     private String groupId; // For tracking SVG groups
     private boolean isClippingMask;
+    private Shape clipShape;
     
     public GroupElement(int x, int y, int width, int height) {
         super(x, y, width, height);
         this.children = new ArrayList<>();
         this.isClippingMask = false;
+        this.clipShape = null;
     }
     
     public GroupElement(int x, int y, int width, int height, String groupId) {
@@ -20,6 +22,7 @@ public class GroupElement extends CanvasElement {
         this.children = new ArrayList<>();
         this.groupId = groupId;
         this.isClippingMask = false;
+        this.clipShape = null;
     }
     
     @Override
@@ -30,9 +33,13 @@ public class GroupElement extends CanvasElement {
         Shape oldClip = null;
         if (isClippingMask) {
             oldClip = g2d.getClip();
-            // Create a rectangular clip region
-            Rectangle clipRect = new Rectangle(x, y, width, height);
-            g2d.setClip(clipRect);
+            if (clipShape != null) {
+                g2d.setClip(clipShape);
+            } else {
+                // Create a rectangular clip region
+                Rectangle clipRect = new Rectangle(x, y, width, height);
+                g2d.setClip(clipRect);
+            }
         }
         
         // Draw all children
@@ -115,6 +122,7 @@ public class GroupElement extends CanvasElement {
     
     public void releaseClippingMask() {
         isClippingMask = false;
+        clipShape = null;
     }
     
     public boolean isClippingMask() {
@@ -123,6 +131,14 @@ public class GroupElement extends CanvasElement {
     
     public void setClippingMask(boolean isClippingMask) {
         this.isClippingMask = isClippingMask;
+    }
+
+    public Shape getClipShape() {
+        return clipShape;
+    }
+
+    public void setClipShape(Shape clipShape) {
+        this.clipShape = clipShape;
     }
     
     public String getGroupId() {

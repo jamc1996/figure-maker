@@ -8,15 +8,33 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import java.awt.*;
+import java.awt.geom.Area;
+import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SVGParser {
+
+    private static final String CLIP_UNITS_USER_SPACE = "userSpaceOnUse";
+    private static final String CLIP_UNITS_OBJECT_BOUNDING_BOX = "objectBoundingBox";
+
+    private static class ClipPathDef {
+        private final Shape shape;
+        private final String units;
+
+        private ClipPathDef(Shape shape, String units) {
+            this.shape = shape;
+            this.units = units;
+        }
+    }
     
     // Pre-compiled patterns for detecting unsupported SVG path commands
     // Note: Arc commands are now supported
@@ -25,6 +43,7 @@ public class SVGParser {
     
     public static List<CanvasElement> parseSVG(File svgFile) throws Exception {
         List<CanvasElement> elements = new ArrayList<>();
+        Map<String, ClipPathDef> clipPaths = new HashMap<>();
         
         // Create a DOM document from the SVG file
         String parser = XMLResourceDescriptor.getXMLParserClassName();
@@ -35,12 +54,12 @@ public class SVGParser {
         Element svgRoot = doc.getDocumentElement();
         
         // Parse all child elements
-        parseElement(svgRoot, elements, 0, 0);
+        parseElement(svgRoot, elements, 0, 0, clipPaths);
         
         return elements;
     }
     
-    private static void parseElement(Element element, List<CanvasElement> elements, int offsetX, int offsetY) {
+    private static void parseElement(Element element, List<CanvasElement> elements, int offsetX, int offsetY, Map<String, ClipPathDef> clipPaths) {
         String tagName = element.getTagName().toLowerCase();
         
         // Parse transform attribute if present
@@ -67,7 +86,20 @@ public class SVGParser {
                 break;
             case "g":
                 // Parse group element
-                parseGroup(element, elements, currentOffsetX, currentOffsetY);
+                parseGroup(element, elements, currentOffsetX, currentOffsetY, clipPaths);
+                break;
+            case "defs":
+                // Parse definitions (e.g., clipPath)
+                NodeList defChildren = element.getChildNodes();
+                for (int i = 0; i < defChildren.getLength(); i++) {
+                    Node child = defChildren.item(i);
+                    if (child instanceof Element) {
+                        parseDefsElement((Element) child, clipPaths, currentOffsetX, currentOffsetY);
+                    }
+                }
+                break;
+            case "clippath":
+                parseClipPath(element, clipPaths, currentOffsetX, currentOffsetY);
                 break;
             case "svg":
                 // Recursively parse SVG root children without creating a group
@@ -75,21 +107,22 @@ public class SVGParser {
                 for (int i = 0; i < children.getLength(); i++) {
                     Node child = children.item(i);
                     if (child instanceof Element) {
-                        parseElement((Element) child, elements, currentOffsetX, currentOffsetY);
+                        parseElement((Element) child, elements, currentOffsetX, currentOffsetY, clipPaths);
                     }
                 }
                 break;
         }
     }
     
-    private static void parseGroup(Element groupElement, List<CanvasElement> elements, int offsetX, int offsetY) {
+    private static void parseGroup(Element groupElement, List<CanvasElement> elements, int offsetX, int offsetY, Map<String, ClipPathDef> clipPaths) {
         try {
             // Get group ID if present
             String id = groupElement.getAttribute("id");
             
             // Check if this is a clipping mask
             String clipPath = groupElement.getAttribute("clip-path");
-            boolean isClippingMask = clipPath != null && !clipPath.isEmpty();
+            String clipPathRef = parseClipPathRef(clipPath);
+            boolean isClippingMask = clipPathRef != null && !clipPathRef.isEmpty();
             
             // Parse all children into a temporary list
             List<CanvasElement> groupChildren = new ArrayList<>();
@@ -97,7 +130,7 @@ public class SVGParser {
             for (int i = 0; i < children.getLength(); i++) {
                 Node child = children.item(i);
                 if (child instanceof Element) {
-                    parseElement((Element) child, groupChildren, offsetX, offsetY);
+                    parseElement((Element) child, groupChildren, offsetX, offsetY, clipPaths);
                 }
             }
             
@@ -118,6 +151,28 @@ public class SVGParser {
                 
                 GroupElement group = new GroupElement(minX, minY, maxX - minX, maxY - minY, id);
                 group.setClippingMask(isClippingMask);
+                if (isClippingMask) {
+                    ClipPathDef clipDef = clipPaths.get(clipPathRef);
+                    Shape clipShape = null;
+                    if (clipDef != null && clipDef.shape != null) {
+                        if (CLIP_UNITS_OBJECT_BOUNDING_BOX.equals(clipDef.units)) {
+                            java.awt.geom.AffineTransform at = new java.awt.geom.AffineTransform();
+                            at.translate(group.getX(), group.getY());
+                            at.scale(group.getWidth(), group.getHeight());
+                            clipShape = at.createTransformedShape(clipDef.shape);
+                        } else {
+                            if (offsetX != 0 || offsetY != 0) {
+                                java.awt.geom.AffineTransform at = java.awt.geom.AffineTransform.getTranslateInstance(offsetX, offsetY);
+                                clipShape = at.createTransformedShape(clipDef.shape);
+                            } else {
+                                clipShape = clipDef.shape;
+                            }
+                        }
+                    }
+                    if (clipShape != null) {
+                        group.setClipShape(clipShape);
+                    }
+                }
                 
                 for (CanvasElement child : groupChildren) {
                     group.addChild(child);
@@ -127,6 +182,50 @@ public class SVGParser {
             }
         } catch (Exception e) {
             System.err.println("Error parsing group element: " + e.getMessage());
+        }
+    }
+
+    private static void parseDefsElement(Element element, Map<String, ClipPathDef> clipPaths, int offsetX, int offsetY) {
+        String tagName = element.getTagName().toLowerCase();
+
+        switch (tagName) {
+            case "defs": {
+                NodeList children = element.getChildNodes();
+                for (int i = 0; i < children.getLength(); i++) {
+                    Node child = children.item(i);
+                    if (child instanceof Element) {
+                        parseDefsElement((Element) child, clipPaths, offsetX, offsetY);
+                    }
+                }
+                break;
+            }
+            case "clippath":
+                parseClipPath(element, clipPaths, offsetX, offsetY);
+                break;
+            case "rect":
+            case "circle":
+            case "ellipse":
+            case "path":
+            case "g": {
+                String id = element.getAttribute("id");
+                Shape shape = parseClipShapeElement(element, offsetX, offsetY);
+                if (id != null && !id.isEmpty() && shape != null) {
+                    clipPaths.put(id, new ClipPathDef(shape, CLIP_UNITS_USER_SPACE));
+                }
+
+                if (tagName.equals("g")) {
+                    NodeList children = element.getChildNodes();
+                    for (int i = 0; i < children.getLength(); i++) {
+                        Node child = children.item(i);
+                        if (child instanceof Element) {
+                            parseDefsElement((Element) child, clipPaths, offsetX, offsetY);
+                        }
+                    }
+                }
+                break;
+            }
+            default:
+                break;
         }
     }
     
@@ -148,6 +247,18 @@ public class SVGParser {
                 if (colors[0] != null) fillColor = colors[0];
                 if (colors[1] != null) strokeColor = colors[1];
             }
+
+            Double fillOpacity = parseOpacity(rectElement.getAttribute("fill-opacity"));
+            Double strokeOpacity = parseOpacity(rectElement.getAttribute("stroke-opacity"));
+            if (style != null && !style.isEmpty()) {
+                Double styleFillOpacity = parseOpacity(parseStyleProperty(style, "fill-opacity"));
+                Double styleStrokeOpacity = parseOpacity(parseStyleProperty(style, "stroke-opacity"));
+                if (styleFillOpacity != null) fillOpacity = styleFillOpacity;
+                if (styleStrokeOpacity != null) strokeOpacity = styleStrokeOpacity;
+            }
+
+            fillColor = applyOpacity(fillColor, fillOpacity);
+            strokeColor = applyOpacity(strokeColor, strokeOpacity);
             
             RectElement rect = new RectElement(
                 (int) x + offsetX, 
@@ -182,6 +293,18 @@ public class SVGParser {
                 if (colors[0] != null) fillColor = colors[0];
                 if (colors[1] != null) strokeColor = colors[1];
             }
+
+            Double fillOpacity = parseOpacity(circleElement.getAttribute("fill-opacity"));
+            Double strokeOpacity = parseOpacity(circleElement.getAttribute("stroke-opacity"));
+            if (style != null && !style.isEmpty()) {
+                Double styleFillOpacity = parseOpacity(parseStyleProperty(style, "fill-opacity"));
+                Double styleStrokeOpacity = parseOpacity(parseStyleProperty(style, "stroke-opacity"));
+                if (styleFillOpacity != null) fillOpacity = styleFillOpacity;
+                if (styleStrokeOpacity != null) strokeOpacity = styleStrokeOpacity;
+            }
+
+            fillColor = applyOpacity(fillColor, fillOpacity);
+            strokeColor = applyOpacity(strokeColor, strokeOpacity);
             
             CircleElement circle = new CircleElement(
                 (int) (cx - r) + offsetX,
@@ -217,6 +340,18 @@ public class SVGParser {
                 if (colors[0] != null) fillColor = colors[0];
                 if (colors[1] != null) strokeColor = colors[1];
             }
+
+            Double fillOpacity = parseOpacity(ellipseElement.getAttribute("fill-opacity"));
+            Double strokeOpacity = parseOpacity(ellipseElement.getAttribute("stroke-opacity"));
+            if (style != null && !style.isEmpty()) {
+                Double styleFillOpacity = parseOpacity(parseStyleProperty(style, "fill-opacity"));
+                Double styleStrokeOpacity = parseOpacity(parseStyleProperty(style, "stroke-opacity"));
+                if (styleFillOpacity != null) fillOpacity = styleFillOpacity;
+                if (styleStrokeOpacity != null) strokeOpacity = styleStrokeOpacity;
+            }
+
+            fillColor = applyOpacity(fillColor, fillOpacity);
+            strokeColor = applyOpacity(strokeColor, strokeOpacity);
             
             // Note: Using CircleElement to represent ellipse since both are ovals
             CircleElement ellipseCircle = new CircleElement(
@@ -267,6 +402,18 @@ public class SVGParser {
                 if (colors[0] != null) fillColor = colors[0];
                 if (colors[1] != null) strokeColor = colors[1];
             }
+
+            Double fillOpacity = parseOpacity(pathElement.getAttribute("fill-opacity"));
+            Double strokeOpacity = parseOpacity(pathElement.getAttribute("stroke-opacity"));
+            if (style != null && !style.isEmpty()) {
+                Double styleFillOpacity = parseOpacity(parseStyleProperty(style, "fill-opacity"));
+                Double styleStrokeOpacity = parseOpacity(parseStyleProperty(style, "stroke-opacity"));
+                if (styleFillOpacity != null) fillOpacity = styleFillOpacity;
+                if (styleStrokeOpacity != null) strokeOpacity = styleStrokeOpacity;
+            }
+
+            fillColor = applyOpacity(fillColor, fillOpacity);
+            strokeColor = applyOpacity(strokeColor, strokeOpacity);
             
             Path2D.Double path = parseSVGPath(d);
             
@@ -343,17 +490,56 @@ public class SVGParser {
                 Color[] colors = parseStyle(style);
                 if (colors[0] != null) fillColor = colors[0];
             }
+
+            Double fillOpacity = parseOpacity(textElement.getAttribute("fill-opacity"));
+            if (style != null && !style.isEmpty()) {
+                Double styleFillOpacity = parseOpacity(parseStyleProperty(style, "fill-opacity"));
+                if (styleFillOpacity != null) fillOpacity = styleFillOpacity;
+            }
+
+            fillColor = applyOpacity(fillColor, fillOpacity);
             
-            // Estimate text dimensions (rough approximation)
-            int estimatedWidth = textContent.length() * fontSize / 2;
-            int estimatedHeight = fontSize + 10;
+            // Estimate text dimensions using font metrics when possible
+            int estimatedWidth;
+            int estimatedHeight;
+            FontMetrics fm = new Canvas().getFontMetrics(font);
+            if (fm != null) {
+                estimatedWidth = fm.stringWidth(textContent.trim());
+                estimatedHeight = fm.getHeight();
+            } else {
+                // Fallback rough approximation
+                estimatedWidth = textContent.length() * fontSize / 2;
+                estimatedHeight = fontSize + 10;
+            }
+
+            // Adjust x based on text-anchor (default is start)
+            String textAnchor = textElement.getAttribute("text-anchor");
+            if (textAnchor == null || textAnchor.isEmpty()) {
+                String styleTextAnchor = parseStyleProperty(style, "text-anchor");
+                if (styleTextAnchor != null && !styleTextAnchor.isEmpty()) {
+                    textAnchor = styleTextAnchor;
+                }
+            }
+            double adjustedX = x;
+            if (textAnchor != null) {
+                switch (textAnchor.trim()) {
+                    case "middle":
+                        adjustedX = x - (estimatedWidth / 2.0);
+                        break;
+                    case "end":
+                        adjustedX = x - estimatedWidth;
+                        break;
+                    default:
+                        break;
+                }
+            }
             
             // Create text element with proper SVG positioning
             // TextElement draws text at x+5, y+ascent+5
             // SVG text is positioned at baseline, so we need to adjust
             SVGTextElement textElem = new SVGTextElement(
-                (int)x + offsetX,
-                (int)y + offsetY,
+                (int) adjustedX + offsetX,
+                (int) y + offsetY,
                 estimatedWidth,
                 estimatedHeight,
                 textContent.trim(),
@@ -364,6 +550,94 @@ public class SVGParser {
             elements.add(textElem);
         } catch (Exception e) {
             System.err.println("Error parsing text element: " + e.getMessage());
+        }
+    }
+
+    private static void parseClipPath(Element clipPathElement, Map<String, ClipPathDef> clipPaths, int offsetX, int offsetY) {
+        try {
+            String id = clipPathElement.getAttribute("id");
+            if (id == null || id.isEmpty()) return;
+
+            String units = clipPathElement.getAttribute("clipPathUnits");
+            if (units == null || units.isEmpty()) units = CLIP_UNITS_USER_SPACE;
+
+            String transform = clipPathElement.getAttribute("transform");
+            int[] translation = parseTransform(transform);
+            int currentOffsetX = offsetX + translation[0];
+            int currentOffsetY = offsetY + translation[1];
+
+            Area area = new Area();
+            NodeList children = clipPathElement.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                Node child = children.item(i);
+                if (child instanceof Element) {
+                    Shape shape = parseClipShapeElement((Element) child, currentOffsetX, currentOffsetY);
+                    if (shape != null) {
+                        area.add(new Area(shape));
+                    }
+                }
+            }
+
+            if (!area.isEmpty()) {
+                clipPaths.put(id, new ClipPathDef(area, units));
+            }
+        } catch (Exception e) {
+            System.err.println("Error parsing clipPath element: " + e.getMessage());
+        }
+    }
+
+    private static Shape parseClipShapeElement(Element element, int offsetX, int offsetY) {
+        String tagName = element.getTagName().toLowerCase();
+
+        String transform = element.getAttribute("transform");
+        int[] translation = parseTransform(transform);
+        int currentOffsetX = offsetX + translation[0];
+        int currentOffsetY = offsetY + translation[1];
+
+        switch (tagName) {
+            case "rect": {
+                double x = parseLength(element.getAttribute("x"));
+                double y = parseLength(element.getAttribute("y"));
+                double width = parseLength(element.getAttribute("width"));
+                double height = parseLength(element.getAttribute("height"));
+                return new Rectangle2D.Double(x + currentOffsetX, y + currentOffsetY, width, height);
+            }
+            case "circle": {
+                double cx = parseLength(element.getAttribute("cx"));
+                double cy = parseLength(element.getAttribute("cy"));
+                double r = parseLength(element.getAttribute("r"));
+                return new Ellipse2D.Double(cx - r + currentOffsetX, cy - r + currentOffsetY, r * 2, r * 2);
+            }
+            case "ellipse": {
+                double cx = parseLength(element.getAttribute("cx"));
+                double cy = parseLength(element.getAttribute("cy"));
+                double rx = parseLength(element.getAttribute("rx"));
+                double ry = parseLength(element.getAttribute("ry"));
+                return new Ellipse2D.Double(cx - rx + currentOffsetX, cy - ry + currentOffsetY, rx * 2, ry * 2);
+            }
+            case "path": {
+                String d = element.getAttribute("d");
+                if (d == null || d.isEmpty()) return null;
+                Path2D.Double path = parseSVGPath(d);
+                path.transform(java.awt.geom.AffineTransform.getTranslateInstance(currentOffsetX, currentOffsetY));
+                return path;
+            }
+            case "g": {
+                Area area = new Area();
+                NodeList children = element.getChildNodes();
+                for (int i = 0; i < children.getLength(); i++) {
+                    Node child = children.item(i);
+                    if (child instanceof Element) {
+                        Shape shape = parseClipShapeElement((Element) child, currentOffsetX, currentOffsetY);
+                        if (shape != null) {
+                            area.add(new Area(shape));
+                        }
+                    }
+                }
+                return area.isEmpty() ? null : area;
+            }
+            default:
+                return null;
         }
     }
     
@@ -654,6 +928,24 @@ public class SVGParser {
             return 1.0f;
         }
     }
+
+    private static Double parseOpacity(String value) {
+        if (value == null || value.isEmpty()) return null;
+        try {
+            double opacity = Double.parseDouble(value.trim());
+            if (opacity < 0) opacity = 0;
+            if (opacity > 1) opacity = 1;
+            return opacity;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Color applyOpacity(Color color, Double opacity) {
+        if (color == null || opacity == null) return color;
+        int alpha = (int) Math.round(color.getAlpha() * opacity);
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+    }
     
     private static Color[] parseStyle(String style) {
         Color[] colors = new Color[2]; // [fill, stroke]
@@ -674,6 +966,24 @@ public class SVGParser {
         }
         
         return colors;
+    }
+
+    private static String parseStyleProperty(String style, String propertyName) {
+        if (style == null || style.isEmpty() || propertyName == null || propertyName.isEmpty()) return null;
+
+        String[] properties = style.split(";");
+        for (String prop : properties) {
+            String[] keyValue = prop.split(":");
+            if (keyValue.length == 2) {
+                String key = keyValue[0].trim();
+                String value = keyValue[1].trim();
+                if (key.equals(propertyName)) {
+                    return value;
+                }
+            }
+        }
+
+        return null;
     }
     
     private static int[] parseTransform(String transform) {
@@ -697,6 +1007,25 @@ public class SVGParser {
         }
         
         return translation;
+    }
+
+    private static String parseClipPathRef(String clipPathValue) {
+        if (clipPathValue == null || clipPathValue.isEmpty()) return null;
+        clipPathValue = clipPathValue.trim();
+
+        if (clipPathValue.startsWith("url(")) {
+            Pattern pattern = Pattern.compile("url\\(\\s*#([^\\)]+)\\s*\\)");
+            Matcher matcher = pattern.matcher(clipPathValue);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+
+        if (clipPathValue.startsWith("#")) {
+            return clipPathValue.substring(1);
+        }
+
+        return null;
     }
     
     private static double parseRotation(String transform) {
