@@ -214,19 +214,19 @@ public class FigureCanvas extends JPanel {
     
     // Helper methods to convert between screen and canvas coordinates
     private int screenToCanvasX(int screenX) {
-        return (int) ((screenX - CANVAS_PADDING) / scale);
+        return (int) Math.round((screenX - CANVAS_PADDING) / scale);
     }
     
     private int screenToCanvasY(int screenY) {
-        return (int) ((screenY - CANVAS_PADDING) / scale);
+        return (int) Math.round((screenY - CANVAS_PADDING) / scale);
     }
     
     private int canvasToScreenX(int canvasX) {
-        return (int) (canvasX * scale) + CANVAS_PADDING;
+        return (int) Math.round(canvasX * scale) + CANVAS_PADDING;
     }
     
     private int canvasToScreenY(int canvasY) {
-        return (int) (canvasY * scale) + CANVAS_PADDING;
+        return (int) Math.round(canvasY * scale) + CANVAS_PADDING;
     }
     
     private void handleMousePressed(MouseEvent e) {
@@ -913,8 +913,8 @@ public class FigureCanvas extends JPanel {
         g2.setStroke(new BasicStroke(1));
         g2.drawRect(canvasX, canvasY, scaledWidth, scaledHeight);
         
-        // Set up clipping to canvas area
-        g2.setClip(canvasX, canvasY, scaledWidth, scaledHeight);
+        // Set up clipping to canvas area (intersect with existing clip)
+        g2.clipRect(canvasX, canvasY, scaledWidth, scaledHeight);
         
         // Translate and scale for drawing elements
         java.awt.geom.AffineTransform at = g2.getTransform();
