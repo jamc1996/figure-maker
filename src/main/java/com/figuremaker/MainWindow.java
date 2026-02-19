@@ -97,7 +97,39 @@ public class MainWindow extends JFrame {
             "New Canvas", JOptionPane.YES_NO_OPTION);
         
         if (result == JOptionPane.YES_OPTION) {
-            canvas.clear();
+            showCanvasSizeDialog();
+        }
+    }
+    
+    private void showCanvasSizeDialog() {
+        JPanel panel = new JPanel(new GridLayout(2, 2, 5, 5));
+        JTextField widthField = new JTextField(String.valueOf(canvas.getPreferredSize().width));
+        JTextField heightField = new JTextField(String.valueOf(canvas.getPreferredSize().height));
+        
+        panel.add(new JLabel("Width (pixels):"));
+        panel.add(widthField);
+        panel.add(new JLabel("Height (pixels):"));
+        panel.add(heightField);
+        
+        int result = JOptionPane.showConfirmDialog(
+            this, panel, "Set Canvas Size", JOptionPane.OK_CANCEL_OPTION);
+        
+        if (result == JOptionPane.OK_OPTION) {
+            try {
+                int width = Integer.parseInt(widthField.getText());
+                int height = Integer.parseInt(heightField.getText());
+                if (width > 0 && height > 0) {
+                    canvas.setCanvasSize(width, height);
+                } else {
+                    JOptionPane.showMessageDialog(this, 
+                        "Width and height must be positive numbers.",
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, 
+                    "Invalid size values. Please enter numbers.",
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }
     

@@ -11,10 +11,14 @@ import java.util.List;
 public class FigureCanvas extends JPanel {
     private List<CanvasElement> elements;
     private CanvasElement selectedElement;
+    private List<CanvasElement> selectedElements; // For multiple selection
     private Point dragStart;
     private Point elementDragStart;
     private boolean isDragging;
     private boolean isResizing;
+    private boolean isAreaSelecting; // For area selection
+    private Point selectionStart; // Start point of area selection
+    private Point selectionEnd; // End point of area selection
     private int resizeHandle; // -1=none, 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
     private int startWidth;
     private int startHeight;
@@ -23,13 +27,34 @@ public class FigureCanvas extends JPanel {
     private static final double MIN_SCALE = 0.1;
     private static final double MAX_SCALE = 10.0;
     
+    // Canvas dimensions (the actual canvas area, not the entire panel)
+    private int canvasWidth = 800;
+    private int canvasHeight = 600;
+    private static final int CANVAS_PADDING = 50; // Padding around canvas for background area
+    
+    // Undo/Redo support
+    private List<List<CanvasElement>> undoStack = new ArrayList<>();
+    private List<List<CanvasElement>> redoStack = new ArrayList<>();
+    private static final int MAX_UNDO_HISTORY = 50;
+    
+    // Clipboard support
+    private List<JsonObject> clipboard = new ArrayList<>();
+    
     public FigureCanvas() {
         elements = new ArrayList<>();
-        setPreferredSize(new Dimension(800, 600));
-        setBackground(Color.WHITE);
+        selectedElements = new ArrayList<>();
+        updatePreferredSize();
+        setBackground(new Color(200, 200, 200)); // Light gray background
         setLayout(null);
         setFocusable(true);
         setupMouseListeners();
+    }
+    
+    private void updatePreferredSize() {
+        // Preferred size includes canvas size scaled plus padding for background
+        int totalWidth = (int) (canvasWidth * scale) + (CANVAS_PADDING * 2);
+        int totalHeight = (int) (canvasHeight * scale) + (CANVAS_PADDING * 2);
+        setPreferredSize(new Dimension(totalWidth, totalHeight));
     }
     
     private void setupMouseListeners() {
@@ -61,6 +86,7 @@ public class FigureCanvas extends JPanel {
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
                 // Zoom when Ctrl or Meta is held (Ctrl on Windows/Linux, Cmd on macOS)
+                // On Mac, trackpad pinch gestures are also detected as Ctrl+scroll
                 if (e.isControlDown() || e.isMetaDown()) {
                     int notches = e.getWheelRotation();
                     if (notches < 0) {
@@ -77,6 +103,44 @@ public class FigureCanvas extends JPanel {
             public void keyPressed(KeyEvent e) {
                 int code = e.getKeyCode();
                 char c = e.getKeyChar();
+                boolean ctrlOrCmd = e.isControlDown() || e.isMetaDown();
+
+                // Undo with Ctrl/Cmd+Z
+                if (code == KeyEvent.VK_Z && ctrlOrCmd && !e.isShiftDown()) {
+                    undo();
+                    return;
+                }
+                
+                // Redo with Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y (Mac standard)
+                if ((code == KeyEvent.VK_Z && ctrlOrCmd && e.isShiftDown()) ||
+                    (code == KeyEvent.VK_Y && ctrlOrCmd)) {
+                    redo();
+                    return;
+                }
+                
+                // Cut with Ctrl/Cmd+X
+                if (code == KeyEvent.VK_X && ctrlOrCmd) {
+                    cut();
+                    return;
+                }
+                
+                // Copy with Ctrl/Cmd+C
+                if (code == KeyEvent.VK_C && ctrlOrCmd) {
+                    copy();
+                    return;
+                }
+                
+                // Paste with Ctrl/Cmd+V
+                if (code == KeyEvent.VK_V && ctrlOrCmd) {
+                    paste();
+                    return;
+                }
+
+                // Select all with Ctrl/Cmd+A
+                if (code == KeyEvent.VK_A && ctrlOrCmd) {
+                    selectAll();
+                    return;
+                }
 
                 // Delete selected element with Backspace/Delete, but don't intercept when editing text
                 if (code == KeyEvent.VK_BACK_SPACE || code == KeyEvent.VK_DELETE) {
@@ -86,8 +150,17 @@ public class FigureCanvas extends JPanel {
                     }
 
                     if (selectedElement != null) {
+                        saveUndoState();
                         elements.remove(selectedElement);
                         selectedElement = null;
+                        repaint();
+                    } else if (!selectedElements.isEmpty()) {
+                        // Delete all selected elements
+                        saveUndoState();
+                        for (CanvasElement elem : selectedElements) {
+                            elements.remove(elem);
+                        }
+                        selectedElements.clear();
                         repaint();
                     }
                     return;
@@ -114,8 +187,8 @@ public class FigureCanvas extends JPanel {
     
     private void updateCursor(int x, int y) {
         // Convert screen coords to logical (canvas) coords
-        int lx = (int) (x / scale);
-        int ly = (int) (y / scale);
+        int lx = screenToCanvasX(x);
+        int ly = screenToCanvasY(y);
 
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
@@ -139,6 +212,23 @@ public class FigureCanvas extends JPanel {
         }
     }
     
+    // Helper methods to convert between screen and canvas coordinates
+    private int screenToCanvasX(int screenX) {
+        return (int) Math.round((screenX - CANVAS_PADDING) / scale);
+    }
+    
+    private int screenToCanvasY(int screenY) {
+        return (int) Math.round((screenY - CANVAS_PADDING) / scale);
+    }
+    
+    private int canvasToScreenX(int canvasX) {
+        return (int) Math.round(canvasX * scale) + CANVAS_PADDING;
+    }
+    
+    private int canvasToScreenY(int canvasY) {
+        return (int) Math.round(canvasY * scale) + CANVAS_PADDING;
+    }
+    
     private void handleMousePressed(MouseEvent e) {
         requestFocusInWindow();
         // Stop editing any text element
@@ -154,8 +244,8 @@ public class FigureCanvas extends JPanel {
         // Check if clicking on a resize handle of the selected element
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
-            int lx = (int) (e.getX() / scale);
-            int ly = (int) (e.getY() / scale);
+            int lx = screenToCanvasX(e.getX());
+            int ly = screenToCanvasY(e.getY());
             resizeHandle = imageElement.getResizeHandleAt(lx, ly);
 
             if (resizeHandle >= 0) {
@@ -170,14 +260,16 @@ public class FigureCanvas extends JPanel {
         }
         
         // Find element at click position (convert to logical coords)
-        int lx = (int) (e.getX() / scale);
-        int ly = (int) (e.getY() / scale);
+        int lx = screenToCanvasX(e.getX());
+        int ly = screenToCanvasY(e.getY());
         CanvasElement clickedElement = findElementAt(lx, ly);
         
         if (clickedElement != null) {
             if (selectedElement != null) {
                 selectedElement.setSelected(false);
             }
+            // Clear multiple selection when single selecting
+            clearMultipleSelection();
             selectedElement = clickedElement;
             selectedElement.setSelected(true);
             
@@ -185,11 +277,19 @@ public class FigureCanvas extends JPanel {
             elementDragStart = new Point(selectedElement.getX(), selectedElement.getY());
             isDragging = false;
             isResizing = false;
+            isAreaSelecting = false;
         } else {
             if (selectedElement != null) {
                 selectedElement.setSelected(false);
                 selectedElement = null;
             }
+            // Clear multiple selection when clicking empty space
+            clearMultipleSelection();
+            
+            // Start area selection
+            isAreaSelecting = true;
+            selectionStart = new Point(lx, ly);
+            selectionEnd = new Point(lx, ly);
         }
         
         // Show popup menu on right-click
@@ -252,9 +352,17 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMouseDragged(MouseEvent e) {
+        int lx = screenToCanvasX(e.getX());
+        int ly = screenToCanvasY(e.getY());
+        
+        // Handle area selection
+        if (isAreaSelecting) {
+            selectionEnd = new Point(lx, ly);
+            repaint();
+            return;
+        }
+        
         if (selectedElement != null && dragStart != null) {
-            int lx = (int) (e.getX() / scale);
-            int ly = (int) (e.getY() / scale);
 
             if (isResizing) {
                 int dx = lx - dragStart.x;
@@ -343,6 +451,19 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMouseReleased(MouseEvent e) {
+        // Finalize area selection
+        if (isAreaSelecting) {
+            selectElementsInArea();
+            isAreaSelecting = false;
+            selectionStart = null;
+            selectionEnd = null;
+        }
+        
+        // Save undo state after drag or resize
+        if (isDragging || isResizing) {
+            saveUndoState();
+        }
+        
         isDragging = false;
         isResizing = false;
         resizeHandle = -1;
@@ -365,6 +486,333 @@ public class FigureCanvas extends JPanel {
                 return element;
             }
         }
+        return null;
+    }
+    
+    private void selectElementsInArea() {
+        if (selectionStart == null || selectionEnd == null) return;
+        
+        // Calculate the selection rectangle
+        int x1 = Math.min(selectionStart.x, selectionEnd.x);
+        int y1 = Math.min(selectionStart.y, selectionEnd.y);
+        int x2 = Math.max(selectionStart.x, selectionEnd.x);
+        int y2 = Math.max(selectionStart.y, selectionEnd.y);
+        
+        // Clear previous selection
+        clearMultipleSelection();
+        
+        // Find all elements that intersect with the selection rectangle
+        for (CanvasElement element : elements) {
+            int ex = element.getX();
+            int ey = element.getY();
+            int ew = element.getWidth();
+            int eh = element.getHeight();
+            
+            // Check if element intersects with selection rectangle
+            if (ex + ew > x1 && ex < x2 && ey + eh > y1 && ey < y2) {
+                element.setSelected(true);
+                selectedElements.add(element);
+            }
+        }
+        
+        repaint();
+    }
+    
+    private void selectAll() {
+        clearMultipleSelection();
+        
+        for (CanvasElement element : elements) {
+            element.setSelected(true);
+            selectedElements.add(element);
+        }
+        
+        repaint();
+    }
+    
+    private void clearMultipleSelection() {
+        for (CanvasElement element : selectedElements) {
+            element.setSelected(false);
+        }
+        selectedElements.clear();
+    }
+    
+    private void saveUndoState() {
+        // Create a deep copy of the current elements list through serialization
+        List<CanvasElement> stateCopy = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    stateCopy.add(copy);
+                }
+            }
+        }
+        undoStack.add(stateCopy);
+        
+        // Limit undo history size
+        if (undoStack.size() > MAX_UNDO_HISTORY) {
+            undoStack.remove(0);
+        }
+        
+        // Clear redo stack when a new action is performed
+        redoStack.clear();
+    }
+    
+    private void undo() {
+        if (undoStack.isEmpty()) {
+            return;
+        }
+        
+        // Save current state to redo stack (deep copy)
+        List<CanvasElement> currentState = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    currentState.add(copy);
+                }
+            }
+        }
+        redoStack.add(currentState);
+        
+        // Restore previous state
+        List<CanvasElement> previousState = undoStack.remove(undoStack.size() - 1);
+        elements.clear();
+        elements.addAll(previousState);
+        
+        // Clear selections
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        repaint();
+    }
+    
+    private void redo() {
+        if (redoStack.isEmpty()) {
+            return;
+        }
+        
+        // Save current state to undo stack (deep copy)
+        List<CanvasElement> currentState = new ArrayList<>();
+        for (CanvasElement element : elements) {
+            JsonObject json = serializeElement(element);
+            if (json != null) {
+                CanvasElement copy = deserializeElement(json, 0, 0);
+                if (copy != null) {
+                    currentState.add(copy);
+                }
+            }
+        }
+        undoStack.add(currentState);
+        
+        // Restore next state
+        List<CanvasElement> nextState = redoStack.remove(redoStack.size() - 1);
+        elements.clear();
+        elements.addAll(nextState);
+        
+        // Clear selections
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        repaint();
+    }
+    
+    private void copy() {
+        clipboard.clear();
+        
+        // Get elements to copy (either single selected or multiple selected)
+        List<CanvasElement> elementsToCopy = new ArrayList<>();
+        if (selectedElement != null) {
+            elementsToCopy.add(selectedElement);
+        } else if (!selectedElements.isEmpty()) {
+            elementsToCopy.addAll(selectedElements);
+        } else {
+            return; // Nothing to copy
+        }
+        
+        // Serialize selected elements to JSON
+        for (CanvasElement element : elementsToCopy) {
+            JsonObject jsonElement = serializeElement(element);
+            if (jsonElement != null) {
+                clipboard.add(jsonElement);
+            }
+        }
+    }
+    
+    private void cut() {
+        if (selectedElement == null && selectedElements.isEmpty()) {
+            return; // Nothing to cut
+        }
+        
+        // Copy first
+        copy();
+        
+        // Then delete
+        saveUndoState();
+        if (selectedElement != null) {
+            elements.remove(selectedElement);
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        } else if (!selectedElements.isEmpty()) {
+            for (CanvasElement elem : selectedElements) {
+                elements.remove(elem);
+            }
+            selectedElements.clear();
+        }
+        
+        repaint();
+    }
+    
+    private void paste() {
+        if (clipboard.isEmpty()) {
+            return; // Nothing to paste
+        }
+        
+        saveUndoState();
+        
+        // Clear current selection
+        if (selectedElement != null) {
+            selectedElement.setSelected(false);
+            selectedElement = null;
+        }
+        clearMultipleSelection();
+        
+        // Paste elements with offset to make them visible
+        int offsetX = 20;
+        int offsetY = 20;
+        
+        for (JsonObject jsonElement : clipboard) {
+            CanvasElement element = deserializeElement(jsonElement, offsetX, offsetY);
+            if (element != null) {
+                elements.add(element);
+                element.setSelected(true);
+                selectedElements.add(element);
+            }
+        }
+        
+        repaint();
+    }
+    
+    private JsonObject serializeElement(CanvasElement element) {
+        JsonObject jsonElement = new JsonObject();
+        jsonElement.addProperty("type", element.getType());
+        jsonElement.addProperty("x", element.getX());
+        jsonElement.addProperty("y", element.getY());
+        jsonElement.addProperty("width", element.getWidth());
+        jsonElement.addProperty("height", element.getHeight());
+        
+        if (element instanceof ImageElement) {
+            ImageElement imageElement = (ImageElement) element;
+            jsonElement.addProperty("imagePath", imageElement.getImagePath());
+            try {
+                jsonElement.addProperty("imageData", imageElement.getImageAsBase64());
+            } catch (IOException e) {
+                System.err.println("Error serializing image element: " + e.getMessage());
+                e.printStackTrace();
+                return null;
+            }
+        } else if (element instanceof SVGTextElement) {
+            SVGTextElement svgTextElement = (SVGTextElement) element;
+            jsonElement.addProperty("text", svgTextElement.getText());
+            jsonElement.addProperty("fontName", svgTextElement.getFont().getName());
+            jsonElement.addProperty("fontSize", svgTextElement.getFont().getSize());
+            jsonElement.addProperty("fontStyle", svgTextElement.getFont().getStyle());
+            jsonElement.addProperty("textColor", colorToString(svgTextElement.getTextColor()));
+            jsonElement.addProperty("rotation", svgTextElement.getRotation());
+        } else if (element instanceof TextElement) {
+            TextElement textElement = (TextElement) element;
+            jsonElement.addProperty("text", textElement.getText());
+            jsonElement.addProperty("fontName", textElement.getFont().getName());
+            jsonElement.addProperty("fontSize", textElement.getFont().getSize());
+            jsonElement.addProperty("fontStyle", textElement.getFont().getStyle());
+        } else if (element instanceof RectElement) {
+            RectElement rectElement = (RectElement) element;
+            jsonElement.addProperty("fillColor", colorToString(rectElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(rectElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", rectElement.getStrokeWidth());
+        } else if (element instanceof CircleElement) {
+            CircleElement circleElement = (CircleElement) element;
+            jsonElement.addProperty("fillColor", colorToString(circleElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(circleElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", circleElement.getStrokeWidth());
+        } else if (element instanceof PathElement) {
+            PathElement pathElement = (PathElement) element;
+            jsonElement.addProperty("fillColor", colorToString(pathElement.getFillColor()));
+            jsonElement.addProperty("strokeColor", colorToString(pathElement.getStrokeColor()));
+            jsonElement.addProperty("strokeWidth", pathElement.getStrokeWidth());
+            jsonElement.addProperty("pathData", pathToString(pathElement.getPath()));
+        }
+        
+        return jsonElement;
+    }
+    
+    private CanvasElement deserializeElement(JsonObject jsonElement, int offsetX, int offsetY) {
+        String type = jsonElement.get("type").getAsString();
+        int x = jsonElement.get("x").getAsInt() + offsetX;
+        int y = jsonElement.get("y").getAsInt() + offsetY;
+        int width = jsonElement.get("width").getAsInt();
+        int height = jsonElement.get("height").getAsInt();
+        
+        if (type.equals("image")) {
+            String imagePath = jsonElement.get("imagePath").getAsString();
+            String imageData = jsonElement.get("imageData").getAsString();
+            
+            try {
+                java.awt.image.BufferedImage image = ImageElement.decodeBase64Image(imageData);
+                return new ImageElement(image, x, y, width, height, imagePath);
+            } catch (IOException e) {
+                System.err.println("Error deserializing image element: " + e.getMessage());
+                e.printStackTrace();
+                return null;
+            }
+        } else if (type.equals("svgtext")) {
+            String text = jsonElement.get("text").getAsString();
+            String fontName = jsonElement.get("fontName").getAsString();
+            int fontSize = jsonElement.get("fontSize").getAsInt();
+            int fontStyle = jsonElement.get("fontStyle").getAsInt();
+            Color textColor = stringToColor(jsonElement.get("textColor").getAsString());
+            double rotation = jsonElement.get("rotation").getAsDouble();
+            
+            Font font = new Font(fontName, fontStyle, fontSize);
+            return new SVGTextElement(x, y, width, height, text, font, textColor, rotation);
+        } else if (type.equals("text")) {
+            String text = jsonElement.get("text").getAsString();
+            String fontName = jsonElement.get("fontName").getAsString();
+            int fontSize = jsonElement.get("fontSize").getAsInt();
+            int fontStyle = jsonElement.get("fontStyle").getAsInt();
+            
+            Font font = new Font(fontName, fontStyle, fontSize);
+            return new TextElement(x, y, width, height, text, font);
+        } else if (type.equals("rect")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            
+            return new RectElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("circle")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            
+            return new CircleElement(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        } else if (type.equals("path")) {
+            Color fillColor = stringToColor(jsonElement.get("fillColor").getAsString());
+            Color strokeColor = stringToColor(jsonElement.get("strokeColor").getAsString());
+            float strokeWidth = (float) jsonElement.get("strokeWidth").getAsDouble();
+            String pathData = jsonElement.get("pathData").getAsString();
+            
+            java.awt.geom.Path2D.Double path = stringToPath(pathData);
+            return new PathElement(path, x, y, width, height, fillColor, strokeColor, strokeWidth);
+        }
+        
         return null;
     }
     
@@ -399,6 +847,7 @@ public class FigureCanvas extends JPanel {
     
     public void addImage(File imageFile) {
         try {
+            saveUndoState();
             ImageElement imageElement = new ImageElement(imageFile, 50, 50);
             elements.add(imageElement);
             repaint();
@@ -410,12 +859,14 @@ public class FigureCanvas extends JPanel {
     }
     
     public void addTextBox() {
+        saveUndoState();
         TextElement textElement = new TextElement(50, 50);
         elements.add(textElement);
         repaint();
     }
     
     public void importSVG(File svgFile) throws Exception {
+        saveUndoState();
         List<CanvasElement> svgElements = SVGParser.parseSVG(svgFile);
         elements.addAll(svgElements);
         repaint();
@@ -429,11 +880,45 @@ public class FigureCanvas extends JPanel {
         repaint();
     }
     
+    public void setCanvasSize(int width, int height) {
+        elements.clear();
+        if (selectedElement != null) {
+            selectedElement = null;
+        }
+        selectedElements.clear();
+        canvasWidth = width;
+        canvasHeight = height;
+        updatePreferredSize();
+        revalidate();
+        repaint();
+    }
+    
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g.create();
+        
+        // Calculate canvas position and size based on scale
+        int scaledWidth = (int) (canvasWidth * scale);
+        int scaledHeight = (int) (canvasHeight * scale);
+        int canvasX = CANVAS_PADDING;
+        int canvasY = CANVAS_PADDING;
+        
+        // Draw white canvas background
+        g2.setColor(Color.WHITE);
+        g2.fillRect(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Draw canvas border
+        g2.setColor(Color.DARK_GRAY);
+        g2.setStroke(new BasicStroke(1));
+        g2.drawRect(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Set up clipping to canvas area (intersect with existing clip)
+        g2.clipRect(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Translate and scale for drawing elements
         java.awt.geom.AffineTransform at = g2.getTransform();
+        g2.translate(canvasX, canvasY);
         g2.scale(scale, scale);
 
         for (CanvasElement element : elements) {
@@ -441,6 +926,21 @@ public class FigureCanvas extends JPanel {
         }
 
         g2.setTransform(at);
+        
+        // Draw selection rectangle (must be drawn after restoring transform but within canvas bounds)
+        if (isAreaSelecting && selectionStart != null && selectionEnd != null) {
+            int x1 = (int) (Math.min(selectionStart.x, selectionEnd.x) * scale) + canvasX;
+            int y1 = (int) (Math.min(selectionStart.y, selectionEnd.y) * scale) + canvasY;
+            int x2 = (int) (Math.max(selectionStart.x, selectionEnd.x) * scale) + canvasX;
+            int y2 = (int) (Math.max(selectionStart.y, selectionEnd.y) * scale) + canvasY;
+            
+            g2.setColor(new Color(100, 150, 255, 50)); // Light blue with transparency
+            g2.fillRect(x1, y1, x2 - x1, y2 - y1);
+            g2.setColor(new Color(100, 150, 255)); // Solid blue
+            g2.setStroke(new BasicStroke(1));
+            g2.drawRect(x1, y1, x2 - x1, y2 - y1);
+        }
+        
         g2.dispose();
     }
 
@@ -460,6 +960,7 @@ public class FigureCanvas extends JPanel {
         double newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
         if (Math.abs(newScale - this.scale) < 1e-6) return;
         this.scale = newScale;
+        updatePreferredSize();
         revalidate();
         repaint();
     }
