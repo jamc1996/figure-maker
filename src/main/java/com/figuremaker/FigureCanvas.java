@@ -27,6 +27,11 @@ public class FigureCanvas extends JPanel {
     private static final double MIN_SCALE = 0.1;
     private static final double MAX_SCALE = 10.0;
     
+    // Canvas dimensions (the actual canvas area, not the entire panel)
+    private int canvasWidth = 800;
+    private int canvasHeight = 600;
+    private static final int CANVAS_PADDING = 50; // Padding around canvas for background area
+    
     // Undo/Redo support
     private List<List<CanvasElement>> undoStack = new ArrayList<>();
     private List<List<CanvasElement>> redoStack = new ArrayList<>();
@@ -38,11 +43,18 @@ public class FigureCanvas extends JPanel {
     public FigureCanvas() {
         elements = new ArrayList<>();
         selectedElements = new ArrayList<>();
-        setPreferredSize(new Dimension(800, 600));
-        setBackground(Color.WHITE);
+        updatePreferredSize();
+        setBackground(new Color(200, 200, 200)); // Light gray background
         setLayout(null);
         setFocusable(true);
         setupMouseListeners();
+    }
+    
+    private void updatePreferredSize() {
+        // Preferred size includes canvas size scaled plus padding for background
+        int totalWidth = (int) (canvasWidth * scale) + (CANVAS_PADDING * 2);
+        int totalHeight = (int) (canvasHeight * scale) + (CANVAS_PADDING * 2);
+        setPreferredSize(new Dimension(totalWidth, totalHeight));
     }
     
     private void setupMouseListeners() {
@@ -175,8 +187,8 @@ public class FigureCanvas extends JPanel {
     
     private void updateCursor(int x, int y) {
         // Convert screen coords to logical (canvas) coords
-        int lx = (int) (x / scale);
-        int ly = (int) (y / scale);
+        int lx = screenToCanvasX(x);
+        int ly = screenToCanvasY(y);
 
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
@@ -200,6 +212,23 @@ public class FigureCanvas extends JPanel {
         }
     }
     
+    // Helper methods to convert between screen and canvas coordinates
+    private int screenToCanvasX(int screenX) {
+        return (int) ((screenX - CANVAS_PADDING) / scale);
+    }
+    
+    private int screenToCanvasY(int screenY) {
+        return (int) ((screenY - CANVAS_PADDING) / scale);
+    }
+    
+    private int canvasToScreenX(int canvasX) {
+        return (int) (canvasX * scale) + CANVAS_PADDING;
+    }
+    
+    private int canvasToScreenY(int canvasY) {
+        return (int) (canvasY * scale) + CANVAS_PADDING;
+    }
+    
     private void handleMousePressed(MouseEvent e) {
         requestFocusInWindow();
         // Stop editing any text element
@@ -215,8 +244,8 @@ public class FigureCanvas extends JPanel {
         // Check if clicking on a resize handle of the selected element
         if (selectedElement instanceof ImageElement) {
             ImageElement imageElement = (ImageElement) selectedElement;
-            int lx = (int) (e.getX() / scale);
-            int ly = (int) (e.getY() / scale);
+            int lx = screenToCanvasX(e.getX());
+            int ly = screenToCanvasY(e.getY());
             resizeHandle = imageElement.getResizeHandleAt(lx, ly);
 
             if (resizeHandle >= 0) {
@@ -231,8 +260,8 @@ public class FigureCanvas extends JPanel {
         }
         
         // Find element at click position (convert to logical coords)
-        int lx = (int) (e.getX() / scale);
-        int ly = (int) (e.getY() / scale);
+        int lx = screenToCanvasX(e.getX());
+        int ly = screenToCanvasY(e.getY());
         CanvasElement clickedElement = findElementAt(lx, ly);
         
         if (clickedElement != null) {
@@ -323,8 +352,8 @@ public class FigureCanvas extends JPanel {
     }
     
     private void handleMouseDragged(MouseEvent e) {
-        int lx = (int) (e.getX() / scale);
-        int ly = (int) (e.getY() / scale);
+        int lx = screenToCanvasX(e.getX());
+        int ly = screenToCanvasY(e.getY());
         
         // Handle area selection
         if (isAreaSelecting) {
@@ -857,7 +886,9 @@ public class FigureCanvas extends JPanel {
             selectedElement = null;
         }
         selectedElements.clear();
-        setPreferredSize(new Dimension(width, height));
+        canvasWidth = width;
+        canvasHeight = height;
+        updatePreferredSize();
         revalidate();
         repaint();
     }
@@ -866,7 +897,28 @@ public class FigureCanvas extends JPanel {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g.create();
+        
+        // Calculate canvas position and size based on scale
+        int scaledWidth = (int) (canvasWidth * scale);
+        int scaledHeight = (int) (canvasHeight * scale);
+        int canvasX = CANVAS_PADDING;
+        int canvasY = CANVAS_PADDING;
+        
+        // Draw white canvas background
+        g2.setColor(Color.WHITE);
+        g2.fillRect(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Draw canvas border
+        g2.setColor(Color.DARK_GRAY);
+        g2.setStroke(new BasicStroke(1));
+        g2.drawRect(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Set up clipping to canvas area
+        g2.setClip(canvasX, canvasY, scaledWidth, scaledHeight);
+        
+        // Translate and scale for drawing elements
         java.awt.geom.AffineTransform at = g2.getTransform();
+        g2.translate(canvasX, canvasY);
         g2.scale(scale, scale);
 
         for (CanvasElement element : elements) {
@@ -875,12 +927,12 @@ public class FigureCanvas extends JPanel {
 
         g2.setTransform(at);
         
-        // Draw selection rectangle
+        // Draw selection rectangle (must be drawn after restoring transform but within canvas bounds)
         if (isAreaSelecting && selectionStart != null && selectionEnd != null) {
-            int x1 = (int) (Math.min(selectionStart.x, selectionEnd.x) * scale);
-            int y1 = (int) (Math.min(selectionStart.y, selectionEnd.y) * scale);
-            int x2 = (int) (Math.max(selectionStart.x, selectionEnd.x) * scale);
-            int y2 = (int) (Math.max(selectionStart.y, selectionEnd.y) * scale);
+            int x1 = (int) (Math.min(selectionStart.x, selectionEnd.x) * scale) + canvasX;
+            int y1 = (int) (Math.min(selectionStart.y, selectionEnd.y) * scale) + canvasY;
+            int x2 = (int) (Math.max(selectionStart.x, selectionEnd.x) * scale) + canvasX;
+            int y2 = (int) (Math.max(selectionStart.y, selectionEnd.y) * scale) + canvasY;
             
             g2.setColor(new Color(100, 150, 255, 50)); // Light blue with transparency
             g2.fillRect(x1, y1, x2 - x1, y2 - y1);
@@ -908,6 +960,7 @@ public class FigureCanvas extends JPanel {
         double newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
         if (Math.abs(newScale - this.scale) < 1e-6) return;
         this.scale = newScale;
+        updatePreferredSize();
         revalidate();
         repaint();
     }
